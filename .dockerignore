@@ -14,3 +14,5 @@ builder/skel/
 website
 dkron-*
 main
+build_release.sh
+*.tar.gz
