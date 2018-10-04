@@ -2,7 +2,9 @@
 
 cd $(dirname $0)
 
-DKRON_VERSION=0.11.1
+DKRON_VERSION=$(cat dkron/version.go | grep Version | cut -d '"' -f2)
+
+echo "Building ${DKRON_VERSION}"
 
 rm -fr dist
 
