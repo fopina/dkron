@@ -10,7 +10,9 @@ rm -fr dist
 
 docker build -t tmp_dkron_build .
 
-docker run --rm -v $(pwd)/dist:/go/bin/ tmp_dkron_build bash -c "GOOS=darwin GOARCH=amd64 go install -ldflags '-s -w' ./... && GOOS=linux GOARCH=amd64 go install -ldflags '-s -w' ./..."
+docker run --rm -v $(pwd)/dist:/go/bin/ tmp_dkron_build bash -c \
+	   "CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go install -ldflags '-s -w' ./... && \
+	    CGO_ENABLED=0 GOOS=linux go install -ldflags '-s -w' ./..."
 
 cd dist
 
