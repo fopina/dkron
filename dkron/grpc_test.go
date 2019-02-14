@@ -11,7 +11,7 @@ import (
 )
 
 func TestGRPCExecutionDone(t *testing.T) {
-	store := NewStore("etcd", []string{etcdAddr}, nil, "dkron", nil)
+	store := NewStore("etcdv3", []string{etcdAddr}, nil, "dkron", nil)
 	viper.Reset()
 
 	// Cleanup everything
@@ -29,6 +29,7 @@ func TestGRPCExecutionDone(t *testing.T) {
 	c.Server = true
 	c.LogLevel = logLevel
 	c.Keyspace = "dkron"
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a := NewAgent(c, nil)
@@ -37,10 +38,11 @@ func TestGRPCExecutionDone(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	testJob := &Job{
-		Name:     "test",
-		Schedule: "@every 1m",
-		Command:  "/bin/false",
-		Disabled: true,
+		Name:           "test",
+		Schedule:       "@every 1m",
+		Executor:       "shell",
+		ExecutorConfig: map[string]string{"command": "/bin/false"},
+		Disabled:       true,
 	}
 
 	if err := store.SetJob(testJob, true); err != nil {

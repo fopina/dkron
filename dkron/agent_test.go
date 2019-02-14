@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	logLevel = "debug"
+	logLevel = "error"
 	etcdAddr = getEnvWithDefault()
 )
 
@@ -35,7 +35,7 @@ func TestAgentCommand_runForElection(t *testing.T) {
 	// Override leader TTL
 	defaultLeaderTTL = 2 * time.Second
 
-	client, err := valkeyrie.NewStore("etcd", []string{etcdAddr}, &store.Config{})
+	client, err := valkeyrie.NewStore("etcdv3", []string{etcdAddr}, &store.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -52,6 +52,7 @@ func TestAgentCommand_runForElection(t *testing.T) {
 	c.NodeName = a1Name
 	c.Server = true
 	c.LogLevel = logLevel
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a1 := NewAgent(c, nil)
@@ -75,6 +76,7 @@ func TestAgentCommand_runForElection(t *testing.T) {
 	c.NodeName = a2Name
 	c.Server = true
 	c.LogLevel = logLevel
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a2 := NewAgent(c, nil)
@@ -114,7 +116,7 @@ func watchOrDie(client store.Store, key string) (*store.KVPair, error) {
 }
 
 func Test_processFilteredNodes(t *testing.T) {
-	client, err := valkeyrie.NewStore("etcd", []string{etcdAddr}, &store.Config{})
+	client, err := valkeyrie.NewStore("etcdv3", []string{etcdAddr}, &store.Config{})
 	err = client.DeleteTree("dkron")
 	if err != nil {
 		if err == store.ErrNotReachable {
@@ -132,6 +134,7 @@ func Test_processFilteredNodes(t *testing.T) {
 	c.Server = true
 	c.LogLevel = logLevel
 	c.Tags = map[string]string{"role": "test"}
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a1 := NewAgent(c, nil)
@@ -147,6 +150,7 @@ func Test_processFilteredNodes(t *testing.T) {
 	c.Server = true
 	c.LogLevel = logLevel
 	c.Tags = map[string]string{"role": "test"}
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a2 := NewAgent(c, nil)
@@ -182,6 +186,7 @@ func TestEncrypt(t *testing.T) {
 	c.Tags = map[string]string{"role": "test"}
 	c.EncryptKey = "kPpdjphiipNSsjd4QHWbkA=="
 	c.LogLevel = logLevel
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a := NewAgent(c, nil)
@@ -202,6 +207,7 @@ func Test_getRPCAddr(t *testing.T) {
 	c.Server = true
 	c.Tags = map[string]string{"role": "test"}
 	c.LogLevel = logLevel
+	c.Backend = "etcdv3"
 	c.BackendMachines = []string{os.Getenv("DKRON_BACKEND_MACHINE")}
 
 	a := NewAgent(c, nil)

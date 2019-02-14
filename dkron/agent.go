@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/abronan/leadership"
+	"github.com/abronan/valkeyrie/store"
 	metrics "github.com/armon/go-metrics"
 	"github.com/hashicorp/memberlist"
 	"github.com/hashicorp/serf/serf"
@@ -262,8 +263,13 @@ func (a *Agent) setupSerf() (*serf.Serf, error) {
 	// Start Serf
 	log.Info("agent: Dkron agent starting")
 
-	serfConfig.LogOutput = ioutil.Discard
-	serfConfig.MemberlistConfig.LogOutput = ioutil.Discard
+	if log.Logger.Level == logrus.DebugLevel {
+		serfConfig.LogOutput = log.Logger.Writer()
+		serfConfig.MemberlistConfig.LogOutput = log.Logger.Writer()
+	} else {
+		serfConfig.LogOutput = ioutil.Discard
+		serfConfig.MemberlistConfig.LogOutput = ioutil.Discard
+	}
 
 	// Create serf first
 	serf, err := serf.Create(serfConfig)
@@ -287,7 +293,11 @@ func (a *Agent) SetConfig(c *Config) {
 
 func (a *Agent) StartServer() {
 	if a.Store == nil {
-		a.Store = NewStore(a.config.Backend, a.config.BackendMachines, a, a.config.Keyspace, nil)
+		var sConfig *store.Config
+		if a.config.Backend == store.BOLTDB || a.config.Backend == store.DYNAMODB {
+			sConfig = &store.Config{Bucket: a.config.Keyspace}
+		}
+		a.Store = NewStore(a.config.Backend, a.config.BackendMachines, a, a.config.Keyspace, sConfig)
 		if err := a.Store.Healthy(); err != nil {
 			log.WithError(err).Fatal("store: Store backend not reachable")
 		}
@@ -307,7 +317,11 @@ func (a *Agent) StartServer() {
 		log.WithError(err).Fatal("agent: RPC server failed to start")
 	}
 
-	a.participate()
+	if a.config.Backend != store.BOLTDB {
+		a.participate()
+	} else {
+		a.schedule()
+	}
 }
 
 func (a *Agent) participate() {
@@ -344,7 +358,7 @@ func (a *Agent) runForElection() {
 			}
 
 		case err := <-errCh:
-			log.WithError(err).Debug("Leader election failed, channel is probably closed")
+			log.WithError(err).Error("Leader election failed, channel is probably closed")
 			metrics.IncrCounter([]string{"agent", "election", "failure"}, 1)
 			// Always stop the schedule of this server to prevent multiple servers with the scheduler on
 			a.sched.Stop()
@@ -393,7 +407,7 @@ func (a *Agent) eventLoop() {
 		case e := <-a.eventCh:
 			log.WithFields(logrus.Fields{
 				"event": e.String(),
-			}).Debug("agent: Received event")
+			}).Info("agent: Received event")
 			metrics.IncrCounter([]string{"agent", "event_received", e.String()}, 1)
 
 			// Log all member events
@@ -449,7 +463,7 @@ func (a *Agent) eventLoop() {
 						log.WithError(err).Error("agent: Error on rpc.GetJob call")
 						continue
 					}
-					log.WithField("command", job.Command).Debug("agent: GetJob by RPC")
+					log.WithField("job", job.Name).Debug("agent: GetJob by RPC")
 
 					ex := rqp.Execution
 					ex.StartedAt = time.Now()
@@ -457,7 +471,7 @@ func (a *Agent) eventLoop() {
 
 					go func() {
 						if err := a.invokeJob(job, ex); err != nil {
-							log.WithError(err).Error("agent: Error invoking job command")
+							log.WithError(err).Error("agent: Error invoking job")
 						}
 					}()
 
@@ -498,7 +512,7 @@ func (a *Agent) eventLoop() {
 
 // Start or restart scheduler
 func (a *Agent) schedule() {
-	log.Debug("agent: Restarting scheduler")
+	log.Info("agent: Restarting scheduler")
 	jobs, err := a.Store.GetJobs(nil)
 	if err != nil {
 		log.Fatal(err)
@@ -611,24 +625,32 @@ func (a *Agent) RefreshJobStatus(jobName string) {
 		log.WithFields(logrus.Fields{
 			"member":        ex.NodeName,
 			"execution_key": ex.Key(),
-		}).Debug("agent: Asking member for pending execution")
+		}).Info("agent: Asking member for pending execution")
 
 		nodes = append(nodes, ex.NodeName)
 		group = strconv.FormatInt(ex.Group, 10)
+		log.WithField("group", group).Debug("agent: Pending execution group")
 	}
 
-	statuses := a.executionDoneQuery(nodes, group)
+	// If there is pending executions to finish ask if they are really pending.
+	if len(nodes) > 0 && group != "" {
+		statuses := a.executionDoneQuery(nodes, group)
 
-	for _, ex := range unfinishedExecutions {
-		if s, ok := statuses[ex.NodeName]; ok {
-			done, _ := strconv.ParseBool(s)
-			if done {
+		log.WithFields(logrus.Fields{
+			"statuses": statuses,
+		}).Debug("agent: Received pending executions response")
+
+		for _, ex := range unfinishedExecutions {
+			if s, ok := statuses[ex.NodeName]; ok {
+				done, _ := strconv.ParseBool(s)
+				if done {
+					ex.FinishedAt = time.Now()
+					a.Store.SetExecution(ex)
+				}
+			} else {
 				ex.FinishedAt = time.Now()
 				a.Store.SetExecution(ex)
 			}
-		} else {
-			ex.FinishedAt = time.Now()
-			a.Store.SetExecution(ex)
 		}
 	}
 }

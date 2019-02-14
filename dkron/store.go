@@ -8,8 +8,11 @@ import (
 
 	"github.com/abronan/valkeyrie"
 	"github.com/abronan/valkeyrie/store"
+	"github.com/abronan/valkeyrie/store/boltdb"
 	"github.com/abronan/valkeyrie/store/consul"
+	"github.com/abronan/valkeyrie/store/dynamodb"
 	"github.com/abronan/valkeyrie/store/etcd/v2"
+	"github.com/abronan/valkeyrie/store/etcd/v3"
 	"github.com/abronan/valkeyrie/store/redis"
 	"github.com/abronan/valkeyrie/store/zookeeper"
 	"github.com/sirupsen/logrus"
@@ -40,7 +43,7 @@ type Store struct {
 	Client   store.Store
 	agent    *Agent
 	keyspace string
-	backend  string
+	backend  store.Backend
 }
 
 type JobOptions struct {
@@ -50,12 +53,15 @@ type JobOptions struct {
 
 func init() {
 	etcd.Register()
+	etcdv3.Register()
 	consul.Register()
 	zookeeper.Register()
 	redis.Register()
+	boltdb.Register()
+	dynamodb.Register()
 }
 
-func NewStore(backend string, machines []string, a *Agent, keyspace string, config *store.Config) *Store {
+func NewStore(backend store.Backend, machines []string, a *Agent, keyspace string, config *store.Config) *Store {
 	s, err := valkeyrie.NewStore(store.Backend(backend), machines, config)
 	if err != nil {
 		log.Error(err)
@@ -99,8 +105,6 @@ func (s *Store) SetJob(job *Job, copyDependentJobs bool) error {
 		return err
 	}
 	if ej != nil {
-		ej.Lock()
-		ej.Unlock()
 		// When the job runs, these status vars are updated
 		// otherwise use the ones that are stored
 		if ej.LastError.After(job.LastError) {

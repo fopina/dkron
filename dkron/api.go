@@ -1,12 +1,12 @@
 package dkron
 
 import (
-	"flag"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/abronan/valkeyrie/store"
+	"github.com/gin-contrib/expvar"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
@@ -35,21 +35,14 @@ func NewTransport(a *Agent) *HTTPTransport {
 }
 
 func (h *HTTPTransport) ServeHTTP() {
-	if flag.Lookup("test.v") != nil {
-		gin.SetMode(gin.TestMode)
-	} else if log.Level >= logrus.InfoLevel {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
 	h.Engine = gin.Default()
 	h.Engine.HTMLRender = CreateMyRender()
 	rootPath := h.Engine.Group("/")
 
-	h.ApiRoutes(rootPath)
+	h.APIRoutes(rootPath)
 	h.agent.DashboardRoutes(rootPath)
 
 	h.Engine.Use(h.MetaMiddleware())
-	//r.GET("/debug/vars", expvar.Handler())
 
 	log.WithFields(logrus.Fields{
 		"address": h.agent.config.HTTPAddr,
@@ -58,8 +51,17 @@ func (h *HTTPTransport) ServeHTTP() {
 	go h.Engine.Run(h.agent.config.HTTPAddr)
 }
 
-// apiRoutes registers the api routes on the gin RouterGroup.
-func (h *HTTPTransport) ApiRoutes(r *gin.RouterGroup) {
+// APIRoutes registers the api routes on the gin RouterGroup.
+func (h *HTTPTransport) APIRoutes(r *gin.RouterGroup) {
+	r.GET("/debug/vars", expvar.Handler())
+
+	h.Engine.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "healthy",
+		})
+	})
+
+	r.GET("/v1", h.indexHandler)
 	v1 := r.Group("/v1")
 	v1.GET("/", h.indexHandler)
 	v1.GET("/members", h.membersHandler)
@@ -111,7 +113,7 @@ func (h *HTTPTransport) indexHandler(c *gin.Context) {
 		"agent": {
 			"name":           local.Name,
 			"version":        Version,
-			"backend":        h.agent.config.Backend,
+			"backend":        string(h.agent.config.Backend),
 			"backend_status": strconv.FormatInt(int64(status), 10),
 		},
 		"serf": h.agent.serf.Stats(),
@@ -168,7 +170,7 @@ func (h *HTTPTransport) jobCreateOrUpdateHandler(c *gin.Context) {
 	h.agent.SchedulerRestart()
 
 	c.Header("Location", fmt.Sprintf("%s/%s", c.Request.RequestURI, job.Name))
-	renderJSON(c, http.StatusCreated, job)
+	renderJSON(c, http.StatusCreated, &job)
 }
 
 func (h *HTTPTransport) jobDeleteHandler(c *gin.Context) {
@@ -235,9 +237,6 @@ func (h *HTTPTransport) leaderHandler(c *gin.Context) {
 }
 
 func (h *HTTPTransport) leaveHandler(c *gin.Context) {
-	if c.Request.Method == http.MethodGet {
-		log.Warn("/leave GET is deprecated and will be removed, use POST")
-	}
 	if err := h.agent.serf.Leave(); err != nil {
 		renderJSON(c, http.StatusOK, h.agent.listServers())
 	}

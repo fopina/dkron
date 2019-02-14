@@ -1,5 +1,6 @@
 ---
 title: Dkron Pro
+weight: 40
 ---
 
-{{% children style="card" depth="2"  description="true" %}}
+{{% children style="h3" description="true" %}}

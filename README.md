@@ -16,13 +16,9 @@ Dkron runs on Linux, OSX and Windows. It can be used to run scheduled commands o
 
 You can use Dkron to run the most important part of your company, scheduled jobs.
 
-## Status
+## Installation
 
-Currently Dkron is under heavy development but approaching production quality, it has been tested in production for long time and a moderate amount of jobs.
-
-Said that, I encourage you to try it, it's very easy to use, see how it works for you and report any bugs [creating an issue](https://github.com/victorcoder/dkron/issues) in the github project.
-
-## Documentation
+[Installation instructions](https://dkron.io/basics/installation/)
 
 Full, comprehensive documentation is viewable on the [Dkron website](http://dkron.io)
 
@@ -36,13 +32,13 @@ Next, run the included Docker Compose config:
 
 `docker-compose up`
 
-This will start, etc, consul and Dkron instances. To add more Dkron instances to the clusters:
+This will start Dkron instances. To add more Dkron instances to the clusters:
 
 `docker-compose scale dkron=4`
 
 Check the port mapping using `docker-compose ps` and use the browser to navigate to the Dkron dashboard using one of the ports mapped by compose.
 
-To add jobs to the system read the API docs.
+To add jobs to the system read the [API docs](https://dkron.io/api/).
 
 ## Frontend development
 
@@ -68,8 +64,8 @@ https://github.com/gromo/dkron-php-adapter
 
 ## Get in touch
 
-- Twitter: [@dkronio](https://twitter.com/dkronio) or [@victorcoder](https://twitter.com/victorcoder)
-- Email: victor at victorcastell.com
+- Twitter: [@distribworks](https://twitter.com/distribworks) or [@victorcoder](https://twitter.com/victorcoder)
+- Email: victor at distrib.works
 
 # Sponsor
 

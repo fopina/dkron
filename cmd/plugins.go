@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/hashicorp/go-plugin"
 	"github.com/kardianos/osext"
+	"github.com/sirupsen/logrus"
 	"github.com/victorcoder/dkron/dkron"
 	dkplugin "github.com/victorcoder/dkron/plugin"
 )
@@ -16,6 +17,8 @@ import (
 type Plugins struct {
 	Processors map[string]dkron.ExecutionProcessor
 	Executors  map[string]dkron.Executor
+	LogLevel   string
+	NodeName   string
 }
 
 // Discover plugins located on disk
@@ -100,17 +103,20 @@ func getPluginName(file string) (string, bool) {
 	}
 
 	// This cleans off the .exe for windows plugins
-	name := strings.TrimRight(parts[2], ".exe")
+	name := strings.TrimSuffix(parts[2], ".exe")
 	return name, true
 }
 
-func (Plugins) pluginFactory(path string, pluginType string) (interface{}, error) {
+func (p *Plugins) pluginFactory(path string, pluginType string) (interface{}, error) {
 	// Build the plugin client configuration and init the plugin
 	var config plugin.ClientConfig
 	config.Cmd = exec.Command(path)
 	config.HandshakeConfig = dkplugin.Handshake
 	config.Managed = true
 	config.Plugins = dkplugin.PluginMap
+	config.SyncStdout = os.Stdout
+	config.SyncStderr = os.Stderr
+	config.Logger = &dkron.HCLogAdapter{Log: dkron.InitLogger(p.LogLevel, p.NodeName), Name: "plugins"}
 
 	switch pluginType {
 	case dkplugin.ProcessorPluginName:

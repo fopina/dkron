@@ -15,3 +15,10 @@ main
 *.log
 config/
 dist
+dkron.db
+static/node_modules
+
+.DS_Store
+.vscode
+tags
+.sass-cache
