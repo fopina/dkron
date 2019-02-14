@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/armon/circbuf"
 	"github.com/mattn/go-shellwords"
@@ -88,7 +89,7 @@ func (s *Shell) Execute(args *dkron.ExecuteRequest) ([]byte, error) {
 	log.Printf("shell: Command output %s", output)
 
 	if err != nil {
-		return nil, err
+		return nil, errors.New(err.Error() + "\n" + output.String())
 	}
 
 	return output.Bytes(), nil
