@@ -8,6 +8,7 @@ import (
 
 	"github.com/abronan/valkeyrie/store"
 	metrics "github.com/armon/go-metrics"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/sirupsen/logrus"
 	"github.com/victorcoder/dkron/proto"
 	"golang.org/x/net/context"
@@ -83,6 +84,7 @@ func (grpcs *GRPCServer) ExecutionDone(ctx context.Context, execDoneReq *proto.E
 	log.WithFields(logrus.Fields{
 		"group": execDoneReq.Group,
 		"job":   execDoneReq.JobName,
+		"from":  execDoneReq.NodeName,
 	}).Debug("grpc: Received execution done")
 
 	var execution Execution
@@ -189,26 +191,36 @@ retry:
 	return execDoneResp, nil
 }
 
+func (grpcs *GRPCServer) Leave(ctx context.Context, in *empty.Empty) (*empty.Empty, error) {
+	return in, grpcs.agent.Stop()
+}
+
 type DkronGRPCClient interface {
 	Connect(string) (*grpc.ClientConn, error)
 	CallExecutionDone(string, *Execution) error
 	CallGetJob(string, string) (*Job, error)
+	Leave(string) error
 }
 
 type GRPCClient struct {
-	dialOpt grpc.DialOption
+	dialOpt []grpc.DialOption
 }
 
 func NewGRPCClient(dialOpt grpc.DialOption) DkronGRPCClient {
 	if dialOpt == nil {
 		dialOpt = grpc.WithInsecure()
 	}
-	return &GRPCClient{dialOpt: dialOpt}
+	return &GRPCClient{dialOpt: []grpc.DialOption{
+		dialOpt,
+		grpc.WithBlock(),
+		grpc.WithTimeout(5 * time.Second),
+	},
+	}
 }
 
 func (grpcc *GRPCClient) Connect(addr string) (*grpc.ClientConn, error) {
 	// Initiate a connection with the server
-	conn, err := grpc.Dial(addr, grpcc.dialOpt)
+	conn, err := grpc.Dial(addr, grpcc.dialOpt...)
 	if err != nil {
 		return nil, err
 	}
@@ -266,4 +278,31 @@ func (grpcc *GRPCClient) CallGetJob(addr, jobName string) (*Job, error) {
 	}
 
 	return NewJobFromProto(gjr), nil
+}
+
+func (grpcc *GRPCClient) Leave(addr string) error {
+	var conn *grpc.ClientConn
+
+	// Initiate a connection with the server
+	conn, err := grpcc.Connect(addr)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"err":         err,
+			"server_addr": addr,
+		}).Error("grpc: error dialing.")
+		return err
+	}
+	defer conn.Close()
+
+	// Synchronous call
+	d := proto.NewDkronClient(conn)
+	_, err = d.Leave(context.Background(), &empty.Empty{})
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"error": err,
+		}).Warning("grpc: Error calling Leave")
+		return err
+	}
+
+	return nil
 }

@@ -2,11 +2,10 @@ package dkron
 
 import (
 	"errors"
-	"math/rand"
 	"time"
 
 	"github.com/armon/circbuf"
-	"github.com/hashicorp/serf/serf"
+	"github.com/golang/groupcache/consistenthash"
 )
 
 const (
@@ -38,15 +37,21 @@ func (a *Agent) invokeJob(job *Job, execution *Execution) error {
 			JobName: job.Name,
 			Config:  exc,
 		})
+
+		if err == nil && out.Error != "" {
+			err = errors.New(out.Error)
+		}
 		if err != nil {
 			log.WithError(err).WithField("job", job.Name).WithField("plugin", executor).Error("invoke: command error output")
 			success = false
-			output.Write([]byte(err.Error()))
+			output.Write([]byte(err.Error() + "\n"))
 		} else {
 			success = true
 		}
 
-		output.Write(out)
+		if out != nil {
+			output.Write(out.Output)
+		}
 	} else {
 		log.WithField("executor", jex).Error("invoke: Specified executor is not present")
 	}
@@ -55,28 +60,23 @@ func (a *Agent) invokeJob(job *Job, execution *Execution) error {
 	execution.Success = success
 	execution.Output = output.Bytes()
 
-	rpcServer, err := a.getServerRPCAddresFromTags()
+	rpcServer, err := a.selectServerByKey(execution.Key())
 	if err != nil {
 		return err
 	}
+	log.WithField("server", rpcServer).Debug("invoke: Selected a server to send result")
 
 	runningExecutions.Delete(execution.GetGroup())
 
 	return a.GRPCClient.CallExecutionDone(rpcServer, execution)
 }
 
-func (a *Agent) selectServer() serf.Member {
-	servers := a.listServers()
-	server := servers[rand.Intn(len(servers))]
+// Select a server based on key using a consistent hash key
+// like a cache store.
+func (a *Agent) selectServerByKey(key string) (string, error) {
+	ch := consistenthash.New(50, nil)
+	ch.Add(a.GetPeers()...)
+	peerAddress := ch.Get(key)
 
-	return server
-}
-
-func (a *Agent) getServerRPCAddresFromTags() (string, error) {
-	s := a.selectServer()
-
-	if addr, ok := s.Tags["dkron_rpc_addr"]; ok {
-		return addr, nil
-	}
-	return "", ErrNoRPCAddress
+	return peerAddress, nil
 }

@@ -37,13 +37,17 @@ var (
 	runningExecutions sync.Map
 )
 
+// Agent is the main struct that represents a dkron agent
 type Agent struct {
 	ProcessorPlugins map[string]ExecutionProcessor
 	ExecutorPlugins  map[string]Executor
 	HTTPTransport    Transport
-	Store            *Store
+	Store            Storage
 	GRPCServer       DkronGRPCServer
 	GRPCClient       DkronGRPCClient
+
+	// Set a global peer updater func
+	PeerUpdaterFunc func(...string)
 
 	serf      *serf.Serf
 	config    *Config
@@ -79,7 +83,7 @@ func (a *Agent) Start() error {
 		return fmt.Errorf("agent: Can not setup serf, %s", err)
 	}
 	a.serf = s
-	a.join(a.config.StartJoin, true)
+	a.join(a.config.StartJoin, false)
 
 	if err := initMetrics(a); err != nil {
 		log.Fatal("agent: Can not setup metrics")
@@ -106,9 +110,21 @@ func (a *Agent) Start() error {
 	return nil
 }
 
+// Stop stops an agent, if the agent is a server and is running for election
+// stop running for election, if this server was the leader
+// this will force the cluster to elect a new leader and start a new scheduler.
+// If this is a server and has the scheduler started stop it, ignoring if this server
+// was participating in leader election or not (local storage).
+// Then actually leave the cluster.
 func (a *Agent) Stop() error {
-	if a.config.Server {
+	log.Info("agent: Called member stop, now stopping")
+
+	if a.config.Server && a.candidate != nil {
 		a.candidate.Stop()
+	}
+
+	if a.config.Server && a.sched.Started {
+		a.sched.Stop()
 	}
 
 	if err := a.serf.Leave(); err != nil {
@@ -293,11 +309,17 @@ func (a *Agent) SetConfig(c *Config) {
 
 func (a *Agent) StartServer() {
 	if a.Store == nil {
-		var sConfig *store.Config
-		if a.config.Backend == store.BOLTDB || a.config.Backend == store.DYNAMODB {
-			sConfig = &store.Config{Bucket: a.config.Keyspace}
+		var sConfig = store.Config{}
+		backend := a.config.Backend
+		switch backend {
+		case store.BOLTDB, store.DYNAMODB:
+			sConfig.Bucket = a.config.Keyspace
+		case store.REDIS:
+			sConfig.Password = a.config.BackendPassword
+		case store.CONSUL:
+			sConfig.Token = a.config.BackendPassword
 		}
-		a.Store = NewStore(a.config.Backend, a.config.BackendMachines, a, a.config.Keyspace, sConfig)
+		a.Store = NewStore(a.config.Backend, a.config.BackendMachines, a, a.config.Keyspace, &sConfig)
 		if err := a.Store.Healthy(); err != nil {
 			log.WithError(err).Fatal("store: Store backend not reachable")
 		}
@@ -325,7 +347,7 @@ func (a *Agent) StartServer() {
 }
 
 func (a *Agent) participate() {
-	a.candidate = leadership.NewCandidate(a.Store.Client, a.Store.LeaderKey(), a.config.NodeName, defaultLeaderTTL)
+	a.candidate = leadership.NewCandidate(a.Store.Client(), a.Store.LeaderKey(), a.config.NodeName, defaultLeaderTTL)
 
 	go func() {
 		for {
@@ -378,7 +400,8 @@ func (a *Agent) leaderMember() (*serf.Member, error) {
 	return nil, ErrLeaderNotFound
 }
 
-func (a *Agent) listServers() []serf.Member {
+// ListServers returns the list of server members
+func (a *Agent) ListServers() []serf.Member {
 	members := []serf.Member{}
 
 	for _, member := range a.serf.Members() {
@@ -391,11 +414,29 @@ func (a *Agent) listServers() []serf.Member {
 	return members
 }
 
+// LocalMember return the local serf member
+func (a *Agent) LocalMember() serf.Member {
+	return a.serf.LocalMember()
+}
+
 // GetBindIP returns the IP address that the agent is bound to.
 // This could be different than the originally configured address.
 func (a *Agent) GetBindIP() (string, error) {
 	bindIP, _, err := a.config.AddrParts(a.config.BindAddr)
 	return bindIP, err
+}
+
+// GetPeers returns a list of the current serf servers peers addresses
+func (a *Agent) GetPeers() (peers []string) {
+	s := a.ListServers()
+	for _, m := range s {
+		if addr, ok := m.Tags["dkron_rpc_addr"]; ok {
+			peers = append(peers, addr)
+			log.WithField("peer", addr).Debug("agent: updated peer")
+		}
+	}
+
+	return
 }
 
 // Listens to events from Serf and handle the event.
@@ -418,6 +459,11 @@ func (a *Agent) eventLoop() {
 						"member": member.Name,
 						"event":  e.EventType(),
 					}).Debug("agent: Member event")
+				}
+
+				//In case of member event update peer list
+				if a.PeerUpdaterFunc != nil {
+					a.PeerUpdaterFunc(a.GetPeers()...)
 				}
 			}
 
@@ -593,10 +639,6 @@ func (a *Agent) getRPCAddr() string {
 	bindIP := a.serf.LocalMember().Addr
 
 	return fmt.Sprintf("%s:%d", bindIP, a.config.AdvertiseRPCPort)
-}
-
-func (a *Agent) Leave() error {
-	return a.serf.Leave()
 }
 
 func (a *Agent) SetTags(tags map[string]string) error {

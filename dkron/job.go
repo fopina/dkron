@@ -8,6 +8,7 @@ import (
 
 	"github.com/abronan/valkeyrie/store"
 	"github.com/sirupsen/logrus"
+	"github.com/victorcoder/dkron/cron"
 	"github.com/victorcoder/dkron/proto"
 )
 
@@ -109,6 +110,9 @@ type Job struct {
 
 	// Computed job status
 	Status string `json:"status"`
+
+	// Computed next execution
+	Next time.Time `json:"next"`
 }
 
 func NewJobFromProto(in *proto.GetJobResponse) *Job {
@@ -230,9 +234,9 @@ func (j *Job) Lock() error {
 		return ErrNoAgent
 	}
 
-	lockKey := fmt.Sprintf("%s/job_locks/%s", j.Agent.Store.keyspace, j.Name)
+	lockKey := fmt.Sprintf("%s/job_locks/%s", j.Agent.Config().Keyspace, j.Name)
 	// TODO: LockOptions empty is a temporary fix until https://github.com/docker/libkv/pull/99 is fixed
-	l, err := j.Agent.Store.Client.NewLock(lockKey, &store.LockOptions{RenewLock: make(chan (struct{}))})
+	l, err := j.Agent.Store.Client().NewLock(lockKey, &store.LockOptions{RenewLock: make(chan (struct{}))})
 	if err != nil {
 		return err
 	}
@@ -258,6 +262,19 @@ func (j *Job) Unlock() error {
 	}
 
 	return nil
+}
+
+// GetNext returns the job's next schedule
+func (j *Job) GetNext() (time.Time, error) {
+	if j.Schedule != "" {
+		s, err := cron.Parse(j.Schedule)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return s.Next(time.Now()), nil
+	}
+
+	return time.Time{}, nil
 }
 
 func (j *Job) isRunnable() bool {

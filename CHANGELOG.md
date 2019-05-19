@@ -1,3 +1,40 @@
+## 1.2.4
+
+- Update swagger spec: fix executor_config, add status
+- New site design
+- Testing: Parameterize test suite to use any backend
+- Refactor: GetLastExecutionGroup to simplify code
+
+## 1.2.3
+
+- Fix: Bump valkeyrie with redis watches fix
+- Implement server selection using consistent hash
+- Upgrade serf to 0.8.2
+- refactor: Store should implement the interface
+
+## 1.2.2
+
+- Fix: Use branched valkeyrie fixing DynamoDB return all items
+
+## 1.2.1
+
+- Fix: scheduler_started expvar fix
+
+## 1.2.0
+
+- Fix: Update executor support error log instead of fail only (@tengattack)
+- Feature: Return next execution field in API and dashboard.
+- Feature: Add backend redis password flag (@lisuo3389)
+- Feature: Add backend consul token
+- Improvement: Main graph showing running jobs
+
+**NOTE: Breaking change for 3rd party plugins, executors plugins interface signature changed, should be recompiled and adapted.**
+
+## 1.1.1
+
+- Add RPC leave command
+- Fix: Missing tzdata in release image
+
 ## 1.1.0
 
 - Add DynamoDB support

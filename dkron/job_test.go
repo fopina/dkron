@@ -2,21 +2,22 @@ package dkron
 
 import (
 	"testing"
+	"time"
 
-	s "github.com/abronan/valkeyrie/store"
+	"github.com/abronan/valkeyrie/store"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestJobGetParent(t *testing.T) {
-	store := NewStore("etcd", []string{etcdAddr}, nil, "dkron-test", nil)
+	s := NewStore(store.Backend(backend), []string{backendMachine}, nil, "dkron-test", nil)
 	a := &Agent{
-		Store: store,
+		Store: s,
 	}
-	store.agent = a
+	s.agent = a
 
 	// Cleanup everything
-	err := store.Client.DeleteTree("dkron-test")
-	if err != nil && err != s.ErrKeyNotFound {
+	err := s.Client().DeleteTree("dkron-test")
+	if err != nil && err != store.ErrKeyNotFound {
 		t.Logf("error cleaning up: %s", err)
 	}
 
@@ -27,7 +28,7 @@ func TestJobGetParent(t *testing.T) {
 		Schedule:       "@every 2s",
 	}
 
-	if err := store.SetJob(parentTestJob, true); err != nil {
+	if err := s.SetJob(parentTestJob, true); err != nil {
 		t.Fatalf("error creating job: %s", err)
 	}
 
@@ -38,7 +39,7 @@ func TestJobGetParent(t *testing.T) {
 		ParentJob:      "parent_test",
 	}
 
-	err = store.SetJob(dependentTestJob, true)
+	err = s.SetJob(dependentTestJob, true)
 	assert.NoError(t, err)
 
 	parentTestJob, err = dependentTestJob.GetParent()
@@ -47,22 +48,35 @@ func TestJobGetParent(t *testing.T) {
 
 	ptj, err := dependentTestJob.GetParent()
 	assert.NoError(t, err)
-	assert.Equal(t, parentTestJob, ptj)
+	assert.Equal(t, parentTestJob.Name, ptj.Name)
 
 	// Remove the parent job
 	dependentTestJob.ParentJob = ""
 	dependentTestJob.Schedule = "@every 2m"
-	err = store.SetJob(dependentTestJob, true)
+	err = s.SetJob(dependentTestJob, true)
 	assert.NoError(t, err)
 
-	dtj, _ := store.GetJob(dependentTestJob.Name, nil)
+	dtj, _ := s.GetJob(dependentTestJob.Name, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "", dtj.ParentJob)
 
 	ptj, err = dtj.GetParent()
 	assert.EqualError(t, ErrNoParent, err.Error())
 
-	ptj, err = store.GetJob(parentTestJob.Name, nil)
+	ptj, err = s.GetJob(parentTestJob.Name, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, []string{}, ptj.DependentJobs)
+}
+
+func TestJobGetNext(t *testing.T) {
+	j := Job{
+		Schedule: "@daily",
+	}
+
+	td := time.Now()
+	tonight := time.Date(td.Year(), td.Month(), td.Day()+1, 0, 0, 0, 0, td.Location())
+	n, err := j.GetNext()
+
+	assert.NoError(t, err)
+	assert.Equal(t, tonight, n)
 }
