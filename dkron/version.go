@@ -1,4 +1,4 @@
 package dkron
 
 var Name = "Dkron"
-var Version = "devel"
+var Version = "1.2.4.p1"
