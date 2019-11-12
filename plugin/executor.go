@@ -32,6 +32,9 @@ type ExecutorClient struct {
 	client dkron.ExecutorClient
 }
 
+type StatusHelper interface {
+}
+
 func (m *ExecutorClient) Execute(args *dkron.ExecuteRequest) (*dkron.ExecuteResponse, error) {
 	// This is where the magic conversion to Proto happens
 	return m.client.Execute(context.Background(), args)

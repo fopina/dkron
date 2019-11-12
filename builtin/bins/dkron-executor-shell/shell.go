@@ -37,9 +37,19 @@ func (s *Shell) Execute(args *dkron.ExecuteRequest) (*dkron.ExecuteResponse, err
 	return resp, nil
 }
 
+type reportingWriter struct {
+	buffer *circbuf.Buffer
+}
+
+func (p reportingWriter) Write(data []byte) (n int, err error) {
+	// TODO call updater-to-be-done!
+	return p.buffer.Write(data)
+}
+
 // ExecuteImpl do execute command
 func (s *Shell) ExecuteImpl(args *dkron.ExecuteRequest) ([]byte, error) {
 	output, _ := circbuf.NewBuffer(maxBufSize)
+	outputUpdater := reportingWriter{buffer: output}
 
 	shell, err := strconv.ParseBool(args.Config["shell"])
 	if err != nil {
@@ -57,8 +67,8 @@ func (s *Shell) ExecuteImpl(args *dkron.ExecuteRequest) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stderr = output
-	cmd.Stdout = output
+	cmd.Stderr = outputUpdater
+	cmd.Stdout = outputUpdater
 
 	// Start a timer to warn about slow handlers
 	slowTimer := time.AfterFunc(2*time.Hour, func() {
