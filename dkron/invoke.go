@@ -18,6 +18,13 @@ const (
 // ErrNoSuitableServer returns an error in case no suitable server to send the request is found.
 var ErrNoSuitableServer = errors.New("no suitable server found to send the request, aborting")
 
+type statusHelper struct{}
+
+func (*statusHelper) Update(a float32, b []byte, c bool) (int64, error) {
+	log.WithField("plugin", "x").Debugf("%v - %v - %v", a, string(b), c)
+	return 0, nil
+}
+
 // invokeJob will execute the given job. Depending on the event.
 func (a *Agent) invokeJob(job *Job, execution *Execution) error {
 	output, _ := circbuf.NewBuffer(maxBufSize)
@@ -37,7 +44,7 @@ func (a *Agent) invokeJob(job *Job, execution *Execution) error {
 		out, err := executor.Execute(&ExecuteRequest{
 			JobName: job.Name,
 			Config:  exc,
-		})
+		}, &statusHelper{})
 
 		if err == nil && out.Error != "" {
 			err = errors.New(out.Error)

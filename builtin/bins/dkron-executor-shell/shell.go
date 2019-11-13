@@ -28,7 +28,7 @@ const (
 type Shell struct{}
 
 // Execute method of the plugin
-func (s *Shell) Execute(args *dkron.ExecuteRequest) (*dkron.ExecuteResponse, error) {
+func (s *Shell) Execute(args *dkron.ExecuteRequest, cb dkron.StatusHelper) (*dkron.ExecuteResponse, error) {
 	out, err := s.ExecuteImpl(args)
 	resp := &dkron.ExecuteResponse{Output: out}
 	if err != nil {
