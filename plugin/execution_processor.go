@@ -8,7 +8,7 @@ import (
 )
 
 type ExecutionProcessorPlugin struct {
-	Processor dkron.ExecutionProcessor
+	Processor ExecutionProcessor
 }
 
 func (p *ExecutionProcessorPlugin) Server(b *plugin.MuxBroker) (interface{}, error) {

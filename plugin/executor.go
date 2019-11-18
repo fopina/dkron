@@ -5,7 +5,6 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/distribworks/dkron/v2/dkron"
 	"github.com/hashicorp/go-plugin"
 )
 
@@ -14,7 +13,7 @@ import (
 // gRPC.
 type ExecutorPlugin struct {
 	plugin.NetRPCUnsupportedPlugin
-	Executor dkron.Executor
+	Executor Executor
 }
 
 func (p *ExecutorPlugin) GRPCServer(broker *plugin.GRPCBroker, s *grpc.Server) error {

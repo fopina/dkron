@@ -1,4 +1,4 @@
-package dkron
+package plugin
 
 // ExecutionProcessor is an interface that wraps the Process method.
 // Plugins must implement this interface.
