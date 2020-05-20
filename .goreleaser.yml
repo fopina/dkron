@@ -168,6 +168,6 @@ dockers:
       - dkron-processor-files
       - dkron-processor-fluent
     image_templates:
-      - "dkron/dkron:latest"
-      - "dkron/dkron:{{ .Tag }}"
-      - "dkron/dkron:v{{ .Major }}"
+      - "fopina/dkron:latest"
+      - "fopina/dkron:{{ .Tag }}"
+      - "fopina/dkron:v{{ .Major }}"
