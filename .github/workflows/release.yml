@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 on:
   push:
@@ -6,6 +6,8 @@ on:
       - 'x**'
     tags:
       - 'v*.*.*'
+      # to be used by fork patch-releases ^^
+      - 'v*.*.*-*'
 
 jobs:
   goreleaser:
