@@ -41,3 +41,132 @@ jobs:
 
       - name: find them
         run: find .
+
+      - name: set up buildx
+        id: buildx
+        uses: crazy-max/ghaction-docker-buildx@v1
+        with:
+          version: latest
+      
+      - name: prepare for docker buildx
+        run: |
+          mkdir -p dist/linux/arm64
+          tar xf dkron_*_linux_arm64.tar.gz -C dist/linux/arm64
+          mkdir -p dist/linux/amd64
+          tar xf dkron_*_linux_amd64.tar.gz -C dist/linux/amd64
+
+      #- name: login to dockerhub
+      #  run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+      - name: build (and publish) main image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION=${{ steps.prepare.outputs.tag_name }} \
+            --push \
+            -t fopina/dkron:${{ steps.prepare.outputs.tag_name }} \
+            -t fopina/dkron:latest \
+            -f Dockerfile.hub \
+            .
+
+# ./dist
+# ./dist/dkron_3.0.2-4_linux_x86_64.rpm
+# ./dist/dkron-processor-syslog_linux_arm64
+# ./dist/dkron-processor-syslog_linux_arm64/dkron-processor-syslog
+# ./dist/dkron-executor-http_linux_arm64
+# ./dist/dkron-executor-http_linux_arm64/dkron-executor-http
+# ./dist/CHANGELOG.md
+# ./dist/dkron_linux_amd64
+# ./dist/dkron_linux_amd64/dkron
+# ./dist/dkron-processor-fluent_darwin_amd64
+# ./dist/dkron-processor-fluent_darwin_amd64/dkron-processor-fluent
+# ./dist/dkron-processor-syslog_linux_amd64
+# ./dist/dkron-processor-syslog_linux_amd64/dkron-processor-syslog
+# ./dist/dkron_3.0.2-4_linux_arm64.deb
+# ./dist/dkron_3.0.2-4_freebsd_arm64.tar.gz
+# ./dist/dkron-processor-fluent_freebsd_arm64
+# ./dist/dkron-processor-fluent_freebsd_arm64/dkron-processor-fluent
+# ./dist/dkron-executor-http_darwin_amd64
+# ./dist/dkron-executor-http_darwin_amd64/dkron-executor-http
+# ./dist/dkron-executor-http_freebsd_arm64
+# ./dist/dkron-executor-http_freebsd_arm64/dkron-executor-http
+# ./dist/dkron-executor-http_linux_amd64
+# ./dist/dkron-executor-http_linux_amd64/dkron-executor-http
+# ./dist/dkron-executor-shell_freebsd_arm64
+# ./dist/dkron-executor-shell_freebsd_arm64/dkron-executor-shell
+# ./dist/dkron_3.0.2-4_darwin_amd64.tar.gz
+# ./dist/dkron_3.0.2-4_linux_arm64.tar.gz
+# ./dist/dkron_3.0.2-4_checksums.txt
+# ./dist/dkron-processor-fluent_windows_amd64
+# ./dist/dkron-processor-fluent_windows_amd64/dkron-processor-fluent.exe
+# ./dist/dkron_3.0.2-4_windows_amd64.tar.gz
+# ./dist/dkron_3.0.2-4_freebsd_amd64.tar.gz
+# ./dist/dkron-processor-syslog_freebsd_arm64
+# ./dist/dkron-processor-syslog_freebsd_arm64/dkron-processor-syslog
+# ./dist/dkron_windows_amd64
+# ./dist/dkron_windows_amd64/dkron.exe
+# ./dist/dkron-executor-shell_linux_arm64
+# ./dist/dkron-executor-shell_linux_arm64/dkron-executor-shell
+# ./dist/dkron-processor-fluent_freebsd_amd64
+# ./dist/dkron-processor-fluent_freebsd_amd64/dkron-processor-fluent
+# ./dist/dkron_freebsd_arm64
+# ./dist/dkron_freebsd_arm64/dkron
+# ./dist/dkron-processor-log_freebsd_arm64
+# ./dist/dkron-processor-log_freebsd_arm64/dkron-processor-log
+# ./dist/dkron-processor-syslog_windows_amd64
+# ./dist/dkron-processor-syslog_windows_amd64/dkron-processor-syslog.exe
+# ./dist/dkron-processor-files_darwin_amd64
+# ./dist/dkron-processor-files_darwin_amd64/dkron-processor-files
+# ./dist/dkron-processor-files_freebsd_arm64
+# ./dist/dkron-processor-files_freebsd_arm64/dkron-processor-files
+# ./dist/dkron_freebsd_amd64
+# ./dist/dkron_freebsd_amd64/dkron
+# ./dist/dkron-processor-files_windows_amd64
+# ./dist/dkron-processor-files_windows_amd64/dkron-processor-files.exe
+# ./dist/dkron_3.0.2-4_linux_arm64.rpm
+# ./dist/dkron-executor-http_windows_amd64
+# ./dist/dkron-executor-http_windows_amd64/dkron-executor-http.exe
+# ./dist/config.yaml
+# ./dist/dkron-processor-files_freebsd_amd64
+# ./dist/dkron-processor-files_freebsd_amd64/dkron-processor-files
+# ./dist/dkron-processor-log_linux_arm64
+# ./dist/dkron-processor-log_linux_arm64/dkron-processor-log
+# ./dist/dkron-executor-shell_windows_amd64
+# ./dist/dkron-executor-shell_windows_amd64/dkron-executor-shell.exe
+# ./dist/dkron-processor-files_linux_amd64
+# ./dist/dkron-processor-files_linux_amd64/dkron-processor-files
+# ./dist/dkron-processor-syslog_darwin_amd64
+# ./dist/dkron-processor-syslog_darwin_amd64/dkron-processor-syslog
+# ./dist/dkron-processor-fluent_linux_arm64
+# ./dist/dkron-processor-fluent_linux_arm64/dkron-processor-fluent
+# ./dist/dkron_darwin_amd64
+# ./dist/dkron_darwin_amd64/dkron
+# ./dist/dkron_3.0.2-4_linux_amd64.tar.gz
+# ./dist/dkron-processor-log_windows_amd64
+# ./dist/dkron-processor-log_windows_amd64/dkron-processor-log.exe
+# ./dist/dkron-executor-shell_linux_amd64
+# ./dist/dkron-executor-shell_linux_amd64/dkron-executor-shell
+# ./dist/dkron-processor-fluent_linux_amd64
+# ./dist/dkron-processor-fluent_linux_amd64/dkron-processor-fluent
+# ./dist/dkron-processor-syslog_freebsd_amd64
+# ./dist/dkron-processor-syslog_freebsd_amd64/dkron-processor-syslog
+# ./dist/dkron-processor-log_freebsd_amd64
+# ./dist/dkron-processor-log_freebsd_amd64/dkron-processor-log
+# ./dist/dkron-executor-http_freebsd_amd64
+# ./dist/dkron-executor-http_freebsd_amd64/dkron-executor-http
+# ./dist/dkron-processor-files_linux_arm64
+# ./dist/dkron-processor-files_linux_arm64/dkron-processor-files
+# ./dist/dkron-executor-shell_freebsd_amd64
+# ./dist/dkron-executor-shell_freebsd_amd64/dkron-executor-shell
+# ./dist/dkron-executor-shell_darwin_amd64
+# ./dist/dkron-executor-shell_darwin_amd64/dkron-executor-shell
+# ./dist/dkron_3.0.2-4_linux_amd64.deb
+# ./dist/dkron-processor-log_darwin_amd64
+# ./dist/dkron-processor-log_darwin_amd64/dkron-processor-log
+# ./dist/dkron_linux_arm64
+# ./dist/dkron_linux_arm64/dkron
+# ./dist/dkron-processor-log_linux_amd64
+# ./dist/dkron-processor-log_linux_amd64/dkron-processor-log
+# ./Makefile
+
+# https://github.com/goreleaser/goreleaser/issues/530
