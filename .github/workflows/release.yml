@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches-ignore:
-      - 'x**'
+      - '**'
     tags:
       - 'v*.*.*'
       # to be used by fork patch-releases ^^
