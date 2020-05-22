@@ -45,10 +45,12 @@ jobs:
       - name: prepare for docker buildx
         # hacky but clean enough
         run: |
-          mkdir -p dist/linux/arm64
-          tar xf dist/dkron_*_linux_arm64.tar.gz -C dist/linux/arm64
           mkdir -p dist/linux/amd64
           tar xf dist/dkron_*_linux_amd64.tar.gz -C dist/linux/amd64
+          mkdir -p dist/linux/arm64
+          tar xf dist/dkron_*_linux_arm64.tar.gz -C dist/linux/arm64
+          mkdir -p dist/linux/arm/v7
+          tar xf dist/dkron_*_linux_armv7.tar.gz -C dist/linux/arm/v7
 
       - name: login to dockerhub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin

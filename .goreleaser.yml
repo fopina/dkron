@@ -112,6 +112,9 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - 7
     ldflags:
       - -s -w -X github.com/distribworks/dkron/v3/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v3/dkron.Codename=merichuas
 
@@ -155,19 +158,3 @@ changelog:
     - '^docs:'
     - '^test:'
     - '^Merge pull request'
-
-# dockers:
-#   -
-#     dockerfile: Dockerfile.hub
-#     binaries:
-#       - dkron
-#       - dkron-executor-http
-#       - dkron-executor-shell
-#       - dkron-processor-syslog
-#       - dkron-processor-log
-#       - dkron-processor-files
-#       - dkron-processor-fluent
-#     image_templates:
-#       - "fopina/dkron:latest"
-#       - "fopina/dkron:{{ .Tag }}"
-#       - "fopina/dkron:v{{ .Major }}"
