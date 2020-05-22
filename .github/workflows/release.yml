@@ -63,7 +63,7 @@ jobs:
             --build-arg VERSION=${{ steps.prepare.outputs.tag_name }} \
             --push \
             -t ${DOCKER_REPO:-dkron/dkron}:${{ steps.prepare.outputs.tag_name }} \
-            -t ${DOCKER_REPO:-dkron/dkron:latest \
+            -t ${DOCKER_REPO:-dkron/dkron}:latest \
             -f Dockerfile.hub \
             .
 
