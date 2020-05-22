@@ -156,18 +156,18 @@ changelog:
     - '^test:'
     - '^Merge pull request'
 
-dockers:
-  -
-    dockerfile: Dockerfile.hub
-    binaries:
-      - dkron
-      - dkron-executor-http
-      - dkron-executor-shell
-      - dkron-processor-syslog
-      - dkron-processor-log
-      - dkron-processor-files
-      - dkron-processor-fluent
-    image_templates:
-      - "fopina/dkron:latest"
-      - "fopina/dkron:{{ .Tag }}"
-      - "fopina/dkron:v{{ .Major }}"
+# dockers:
+#   -
+#     dockerfile: Dockerfile.hub
+#     binaries:
+#       - dkron
+#       - dkron-executor-http
+#       - dkron-executor-shell
+#       - dkron-processor-syslog
+#       - dkron-processor-log
+#       - dkron-processor-files
+#       - dkron-processor-fluent
+#     image_templates:
+#       - "fopina/dkron:latest"
+#       - "fopina/dkron:{{ .Tag }}"
+#       - "fopina/dkron:v{{ .Major }}"

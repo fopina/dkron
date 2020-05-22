@@ -38,3 +38,6 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           VERSION: ${{ steps.prepare.outputs.tag_name }}
+
+      - name: find them
+        run: find .
