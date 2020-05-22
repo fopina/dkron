@@ -13,22 +13,32 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Checkout
+      - name: test
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+        run: |
+          echo 1 ${HOST:-testing}
+          echo 2 ${HOSTASD:-testing}
+          echo 3 ${DOCKER_USERNAME:-testing}
+          echo 4 ${DOCKER_REPO:-testing}
+
+
+      - name: Checkout
         uses: actions/checkout@master
-      -
-        name: Set up Go
+
+      - name: Set up Go
         uses: actions/setup-go@master
         with:
           go-version: 1.14.x
-      -
-        name: Prepare
+
+      - name: Prepare
         id: prepare
         run: |
             TAG=${GITHUB_REF#refs/tags/}
             echo ::set-output name=tag_name::${TAG}
-      -
-        name: Run GoReleaser
+
+      - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v1
         with:
           version: latest
@@ -51,9 +61,9 @@ jobs:
       - name: prepare for docker buildx
         run: |
           mkdir -p dist/linux/arm64
-          tar xf dkron_*_linux_arm64.tar.gz -C dist/linux/arm64
+          tar xf dist/dkron_*_linux_arm64.tar.gz -C dist/linux/arm64
           mkdir -p dist/linux/amd64
-          tar xf dkron_*_linux_amd64.tar.gz -C dist/linux/amd64
+          tar xf dist/dkron_*_linux_amd64.tar.gz -C dist/linux/amd64
 
       #- name: login to dockerhub
       #  run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
