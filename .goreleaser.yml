@@ -54,7 +54,7 @@ builds:
     id: dkron-processor-fluent
     binary: dkron-processor-fluent
 
-  - - <<: *xbuild
+  - <<: *xbuild
     main: .
     id: dkron
     binary: dkron
