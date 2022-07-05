@@ -119,7 +119,7 @@ snapshot:
 
 dockers:
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -141,7 +141,7 @@ dockers:
       - --platform=linux/amd64
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -151,7 +151,7 @@ dockers:
       - --platform=linux/arm64/v8
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
+      - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -170,9 +170,9 @@ docker_manifests:
 
   - name_template: fopina/{{ .ProjectName }}:latest
     image_templates:
-    - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
+    - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
 
 changelog:
   sort: asc
