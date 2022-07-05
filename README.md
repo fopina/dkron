@@ -20,14 +20,6 @@ Dkron runs on Linux, OSX and Windows. It can be used to run scheduled commands o
 
 You can use Dkron to run the most important part of your company, scheduled jobs.
 
-## Project status
-
-Dkron v1.x is legacy, not supported.
-
-Dkron v2.x is the previous version, stable and still used in production by some users.
-
-Dkron v3.x current stable version, if you are going to start a new deployment, use this.
-
 ## Installation
 
 [Installation instructions](https://dkron.io/basics/installation/)
@@ -78,7 +70,10 @@ PHP client
 https://github.com/gromo/dkron-php-adapter
 
 Terraform provider
-https://github.com/peertransfer/terraform-provider-dkron
+https://github.com/bozerkins/terraform-provider-dkron
+
+Manage and run jobs in Dkron from your django project
+https://github.com/surface-security/django-dkron
 
 ## Get in touch
 

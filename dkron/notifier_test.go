@@ -18,14 +18,14 @@ func TestNotifier_callExecutionWebhook(t *testing.T) {
 	defer ts.Close()
 
 	c := &Config{
-		WebhookURL:     ts.URL,
-		WebhookPayload: `payload={"text": "{{.Report}}"}`,
-		WebhookHeaders: []string{"Content-Type: application/x-www-form-urlencoded"},
+		WebhookEndpoint: ts.URL,
+		WebhookPayload:  `payload={"text": "{{.Report}}"}`,
+		WebhookHeaders:  []string{"Content-Type: application/x-www-form-urlencoded"},
 	}
 
-	n := Notification(c, &Execution{}, []*Execution{}, &Job{})
-
-	assert.NoError(t, n.Send())
+	log := getTestLogger()
+	err := SendPostNotifications(c, &Execution{}, []*Execution{}, &Job{}, log)
+	assert.NoError(t, err)
 }
 
 func TestNotifier_sendExecutionEmail(t *testing.T) {
@@ -61,12 +61,13 @@ func TestNotifier_sendExecutionEmail(t *testing.T) {
 		ex1,
 	}
 
-	n := Notification(c, ex1, exg, job)
-	assert.NoError(t, n.Send())
+	log := getTestLogger()
+	err := SendPostNotifications(c, ex1, exg, job, log)
+	assert.NoError(t, err)
 }
 
 func Test_auth(t *testing.T) {
-	n1 := &Notifier{
+	n1 := &notifier{
 		Config: &Config{
 			MailHost:     "localhost",
 			MailPort:     25,
@@ -77,7 +78,7 @@ func Test_auth(t *testing.T) {
 	a1 := n1.auth()
 	assert.NotNil(t, a1)
 
-	n2 := &Notifier{
+	n2 := &notifier{
 		Config: &Config{
 			MailHost: "localhost",
 			MailPort: 25,
@@ -88,10 +89,6 @@ func Test_auth(t *testing.T) {
 }
 
 func TestNotifier_buildTemplate(t *testing.T) {
-	c := &Config{
-		NodeName: "test-node",
-	}
-
 	ex1 := &Execution{
 		JobName:    "test",
 		StartedAt:  time.Now(),
@@ -111,7 +108,15 @@ func TestNotifier_buildTemplate(t *testing.T) {
 		ex1,
 	}
 
-	n := Notification(c, ex1, exg, nil)
+	log := getTestLogger()
+	n := &notifier{
+		Config: &Config{
+			NodeName: "test-node",
+		},
+		Execution:      ex1,
+		ExecutionGroup: exg,
+		logger:         log,
+	}
 	for _, tc := range templateTestCases(n) {
 		got := n.buildTemplate(tc.template).String()
 
@@ -127,7 +132,7 @@ type templateTestCase struct {
 	template string
 }
 
-var templateTestCases = func(n *Notifier) []templateTestCase {
+var templateTestCases = func(n *notifier) []templateTestCase {
 	return []templateTestCase{
 		{
 			desc:     "Report template variable",

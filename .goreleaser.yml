@@ -35,6 +35,26 @@ builds:
     binary: dkron-executor-rabbitmq
 
   - <<: *xbuild
+    main: ./builtin/bins/dkron-executor-nats/
+    id: dkron-executor-nats
+    binary: dkron-executor-nats
+
+  - <<: *xbuild
+    main: ./builtin/bins/dkron-executor-kafka/
+    id: dkron-executor-kafka
+    binary: dkron-executor-kafka
+
+  - <<: *xbuild
+    main: ./builtin/bins/dkron-executor-gcppubsub/
+    id: dkron-executor-gcppubsub
+    binary: dkron-executor-gcppubsub
+
+  - <<: *xbuild
+    main: ./builtin/bins/dkron-executor-grpc/
+    id: dkron-executor-grpc
+    binary: dkron-executor-grpc
+
+  - <<: *xbuild
     main: ./builtin/bins/dkron-processor-files/
     id: dkron-processor-files
     binary: dkron-processor-files
@@ -48,7 +68,6 @@ builds:
     main: ./builtin/bins/dkron-processor-syslog/
     id: dkron-processor-syslog
     binary: dkron-processor-syslog
-  
   - <<: *xbuild
     main: ./builtin/bins/dkron-processor-fluent/
     id: dkron-processor-fluent
@@ -59,7 +78,7 @@ builds:
     id: dkron
     binary: dkron
     ldflags:
-      - -s -w -X github.com/distribworks/dkron/v3/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v3/dkron.Codename=merichuas
+      - -s -w -X github.com/distribworks/dkron/v3/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v3/dkron.Codename=Abaniko
 
 nfpms:
   -
@@ -82,9 +101,13 @@ nfpms:
     #files:
     #  "builder/files/": "/etc/init.d"
     #  "path/**/glob": "/var/foo/glob"
-    config_files:
-      "builder/files/dkron.yml": "/etc/dkron/dkron.yml"
-      "builder/files/dkron.service": "/lib/systemd/system/dkron.service"
+    contents:
+      - src: builder/files/dkron.yml
+        dst: /etc/dkron/dkron.yml
+        type: config
+      - src: builder/files/dkron.service
+        dst: /lib/systemd/system/dkron.service
+        type: config
 
     overrides:
       rpm:
@@ -93,6 +116,50 @@ nfpms:
 
 snapshot:
   name_template: "{{ .Tag }}-next"
+
+dockers:
+  - image_templates:
+      - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+    dockerfile: Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: amd64
+    ids: &docker-ids
+      - dkron
+      - dkron-executor-http
+      - dkron-executor-shell
+      - dkron-executor-rabbitmq
+      - dkron-executor-nats
+      - dkron-executor-kafka
+      - dkron-executor-gcppubsub
+      - dkron-executor-grpc
+      - dkron-processor-files
+      - dkron-processor-log
+      - dkron-processor-syslog
+      - dkron-processor-fluent
+    build_flag_templates:
+      - --platform=linux/amd64
+
+  - image_templates:
+      - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+    dockerfile: Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: arm64
+    ids: *docker-ids
+    build_flag_templates:
+      - --platform=linux/arm64/v8
+
+docker_manifests:
+  - name_template: dkron/{{ .ProjectName }}:{{ .Version }}
+    image_templates:
+      - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+      - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+
+  - name_template: dkron/{{ .ProjectName }}:latest
+    image_templates:
+    - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+    - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
 
 changelog:
   sort: asc
