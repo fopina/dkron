@@ -68,7 +68,6 @@ builds:
     main: ./builtin/bins/dkron-processor-syslog/
     id: dkron-processor-syslog
     binary: dkron-processor-syslog
-
   - <<: *xbuild
     main: ./builtin/bins/dkron-processor-fluent/
     id: dkron-processor-fluent
@@ -119,7 +118,7 @@ snapshot:
 
 dockers:
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -141,7 +140,7 @@ dockers:
       - --platform=linux/amd64
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -151,7 +150,7 @@ dockers:
       - --platform=linux/arm64/v8
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
+      - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -168,11 +167,11 @@ docker_manifests:
       - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
       - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
 
-  - name_template: dkron/{{ .ProjectName }}:latest
+  - name_template: fopina/{{ .ProjectName }}:latest
     image_templates:
-    - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
+    - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
 
 changelog:
   sort: asc
