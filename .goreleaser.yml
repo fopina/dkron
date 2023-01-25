@@ -160,7 +160,7 @@ dockers:
     use: buildx
     goos: linux
     goarch: arm
-    goarm: v7
+    goarm: '7'
     ids: *docker-ids
     build_flag_templates:
       - --platform=linux/arm/v7
@@ -172,7 +172,7 @@ docker_manifests:
   #     - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
   #     - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
 
-  - name_template: fopina/{{ .ProjectName }}:latest
+  - name_template: fopina/{{ .ProjectName }}:{{ .Version }}
     image_templates:
     - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
     - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
