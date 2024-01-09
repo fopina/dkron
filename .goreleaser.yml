@@ -113,11 +113,6 @@ nfpms:
       - dst: /var/log/dkron
         type: dir
 
-    overrides:
-      rpm:
-        replacements:
-          amd64: x86_64
-
 snapshot:
   name_template: "{{ .Tag }}-next"
 
