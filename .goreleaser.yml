@@ -161,7 +161,7 @@ dockers:
       - --platform=linux/arm/v7
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-amd64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-light-amd64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -172,7 +172,7 @@ dockers:
       - --platform=linux/amd64
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-arm64
+      - fopina/{{ .ProjectName }}:{{ .Version }}-light-arm64
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -182,7 +182,7 @@ dockers:
       - --platform=linux/arm64/v8
 
   - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-armv7
+      - fopina/{{ .ProjectName }}:{{ .Version }}-light-armv7
     dockerfile: Dockerfile.release
     use: buildx
     goos: linux
@@ -205,11 +205,11 @@ docker_manifests:
     - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
     - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
 
-  - name_template: dkron/{{ .ProjectName }}:{{ .Version }}-light
+  - name_template: fopina/{{ .ProjectName }}:{{ .Version }}-light
     image_templates:
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-amd64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-arm64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-armv7
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-amd64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-arm64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-armv7
 
 changelog:
   sort: asc
