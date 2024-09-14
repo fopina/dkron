@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/distribworks/dkron/v3/dkron"
-	dkplugin "github.com/distribworks/dkron/v3/plugin"
+	"github.com/distribworks/dkron/v4/dkron"
+	dkplugin "github.com/distribworks/dkron/v4/plugin"
 	"github.com/hashicorp/go-plugin"
 	"github.com/kardianos/osext"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
+
+var embededPlugins = []string{"shell", "http"}
 
 type Plugins struct {
 	Processors map[string]dkplugin.Processor
@@ -89,6 +91,15 @@ func (p *Plugins) DiscoverPlugins() error {
 		}
 
 		raw, err := p.pluginFactory(file, []string{}, dkplugin.ExecutorPluginName)
+		if err != nil {
+			return err
+		}
+		p.Executors[pluginName] = raw.(dkplugin.Executor)
+	}
+
+	// Load the embeded plugins
+	for _, pluginName := range embededPlugins {
+		raw, err := p.pluginFactory(exePath, []string{pluginName}, dkplugin.ExecutorPluginName)
 		if err != nil {
 			return err
 		}
