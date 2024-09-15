@@ -5,9 +5,9 @@ release:
 
 builds:
   - &xbuild
-    main: .
-    id: dkron
-    binary: dkron
+    main: ./builtin/bins/dkron-executor-http/
+    id: dkron-executor-http
+    binary: dkron-executor-http
     env:
       - CGO_ENABLED=0
     goos:
@@ -22,7 +22,12 @@ builds:
     goarm:
       - '7'
     ldflags:
-      - -s -w -X github.com/distribworks/dkron/v4/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v4/dkron.Codename=Abaniko
+      - -s -w
+
+  # - <<: *xbuild
+  #   main: ./builtin/bins/dkron-executor-shell/
+  #   id: dkron-executor-shell
+  #   binary: dkron-executor-shell
 
   # - <<: *xbuild
   #   main: ./builtin/bins/dkron-executor-rabbitmq/
@@ -63,10 +68,18 @@ builds:
   #   main: ./builtin/bins/dkron-processor-syslog/
   #   id: dkron-processor-syslog
   #   binary: dkron-processor-syslog
+
   # - <<: *xbuild
   #   main: ./builtin/bins/dkron-processor-fluent/
   #   id: dkron-processor-fluent
   #   binary: dkron-processor-fluent
+
+  - <<: *xbuild
+    main: .
+    id: dkron
+    binary: dkron
+    ldflags:
+      - -s -w -X github.com/distribworks/dkron/v3/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v3/dkron.Codename=Abaniko
 
 # nfpms:
 #   -
@@ -178,56 +191,31 @@ dockers:
     build_flag_templates:
       - --platform=linux/arm/v7
 
-  - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-amd64
-    dockerfile: Dockerfile.release
-    use: buildx
-    goos: linux
-    goarch: amd64
-    ids: &docker-ids
-      - dkron
-    build_flag_templates:
-      - --platform=linux/amd64
+# docker_manifests:
+#   - name_template: dkron/{{ .ProjectName }}:{{ .Version }}
+#     image_templates:
+#       - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+#       - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+#       - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
 
-  - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-arm64
-    dockerfile: Dockerfile.release
-    use: buildx
-    goos: linux
-    goarch: arm64
-    ids: *docker-ids
-    build_flag_templates:
-      - --platform=linux/arm64/v8
-
-  - image_templates:
-      - dkron/{{ .ProjectName }}:{{ .Version }}-light-armv7
-    dockerfile: Dockerfile.release
-    use: buildx
-    goos: linux
-    goarch: arm
-    goarm: '7'
-    ids: *docker-ids
-    build_flag_templates:
-      - --platform=linux/arm/v7
+#   - name_template: dkron/{{ .ProjectName }}:latest
+#     image_templates:
+#     - dkron/{{ .ProjectName }}:{{ .Version }}-amd64
+#     - dkron/{{ .ProjectName }}:{{ .Version }}-arm64
+#     - dkron/{{ .ProjectName }}:{{ .Version }}-armv7
 
 docker_manifests:
-  # - name_template: fopina/{{ .ProjectName }}:{{ .Version }}
-  #   image_templates:
-  #   - fopina/{{ .ProjectName }}:{{ .Version }}-amd64
-  #   - fopina/{{ .ProjectName }}:{{ .Version }}-arm64
-  #   - fopina/{{ .ProjectName }}:{{ .Version }}-armv7
-
   - name_template: fopina/{{ .ProjectName }}:{{ .Version }}-light
     image_templates:
     - fopina/{{ .ProjectName }}:{{ .Version }}-light-amd64
     - fopina/{{ .ProjectName }}:{{ .Version }}-light-arm64
     - fopina/{{ .ProjectName }}:{{ .Version }}-light-armv7
 
-  - name_template: dkron/{{ .ProjectName }}:{{ .Version }}-light
+  - name_template: fopina/{{ .ProjectName }}:light
     image_templates:
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-amd64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-arm64
-    - dkron/{{ .ProjectName }}:{{ .Version }}-light-armv7
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-amd64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-arm64
+    - fopina/{{ .ProjectName }}:{{ .Version }}-light-armv7
 
 changelog:
   sort: asc
