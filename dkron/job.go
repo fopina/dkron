@@ -317,12 +317,12 @@ func (j *Job) nameHash() int {
 	return hash
 }
 
-// scheduleHash replaces H in the cron spec by a value derived from job Name
+// scheduleHash replaces hash symbol in the cron spec by a value derived from job Name
 // such as "0 0 ~ * * *"
 func (j *Job) scheduleHash() string {
 	spec := j.Schedule
 
-	if !strings.Contains(spec, HashSymbol) && !strings.Contains(spec, "H") {
+	if !strings.Contains(spec, HashSymbol) {
 		return spec
 	}
 
@@ -339,7 +339,7 @@ func (j *Job) scheduleHash() string {
 			continue
 		}
 
-		if strings.Contains(part, HashSymbol) || strings.Contains(part, "H") {
+		if strings.Contains(part, HashSymbol) {
 			// mods taken in accordance with https://dkron.io/docs/usage/cron-spec/#cron-expression-format
 			partHash := hash
 			switch partIndex {
@@ -354,7 +354,7 @@ func (j *Job) scheduleHash() string {
 			default:
 				partHash %= 60
 			}
-			parts[index] = strings.ReplaceAll(strings.ReplaceAll(part, HashSymbol, strconv.Itoa(partHash)), "H", strconv.Itoa(partHash))
+			parts[index] = strings.ReplaceAll(part, HashSymbol, strconv.Itoa(partHash))
 		}
 
 		partIndex++
