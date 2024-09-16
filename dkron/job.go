@@ -354,8 +354,7 @@ func (j *Job) scheduleHash() string {
 			default:
 				partHash %= 60
 			}
-			parts[index] = strings.ReplaceAll(part, HashSymbol, strconv.Itoa(partHash))
-			parts[index] = strings.ReplaceAll(part, "H", strconv.Itoa(partHash))
+			parts[index] = strings.ReplaceAll(strings.ReplaceAll(part, HashSymbol, strconv.Itoa(partHash)), "H", strconv.Itoa(partHash))
 		}
 
 		partIndex++
