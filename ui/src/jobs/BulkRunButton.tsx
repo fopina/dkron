@@ -1,23 +1,24 @@
-import * as React from 'react';
 import { useState } from 'react';
 import {
     useNotify,
     Button,
     useUnselectAll,
     useRefresh,
+    useListContext,
 } from 'react-admin';
-import { apiUrl } from '../dataProvider';
+import { apiUrl, httpClient } from '../dataProvider';
 import RunIcon from '@mui/icons-material/PlayArrow';
 
-const BulkRunButton = ({selectedIds}: any) => {
+const BulkRunButton = ({...props}: any) => {
     const notify = useNotify();
     const refresh = useRefresh();
     const unselectAll = useUnselectAll;
     const [loading, setLoading] = useState(false);
+    const { selectedIds } = useListContext();
     const runMany = () => {
         for(let id of selectedIds) {
             setLoading(true);
-            fetch(`${apiUrl}/jobs/${id}`, { method: 'POST' })
+            httpClient(`${apiUrl}/jobs/${id}`, { method: 'POST' })
                 .then(() => {
                     notify('Success running job');
                 })
