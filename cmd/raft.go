@@ -59,7 +59,7 @@ var peerID string
 
 var raftRemovePeerCmd = &cobra.Command{
 	Use:   "remove-peer",
-	Short: "Command to list raft peers",
+	Short: "Command to remove a peer from raft",
 	Long:  ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		log := logrus.NewEntry(logrus.New())
@@ -68,7 +68,7 @@ var raftRemovePeerCmd = &cobra.Command{
 		if err := gc.RaftRemovePeerByID(ip, peerID); err != nil {
 			return err
 		}
-		fmt.Println("Peer removed")
+		log.Info("Peer removed")
 
 		return nil
 	},

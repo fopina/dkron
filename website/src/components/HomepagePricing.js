@@ -11,7 +11,7 @@ const tiers = [
   {
     name: 'Pro',
     href: '/pro/',
-    priceYearly: 750,
+    priceYearly: 450,
   }
 ]
 const sections = [
@@ -27,6 +27,7 @@ const sections = [
       { name: "Concurrency control", tiers: { Free: true, Pro: true } },
       { name: "Metrics", tiers: { Free: true, Pro: true } },
       { name: "Embedded storage engine", tiers: { Free: true, Pro: true } },
+      { name: "Fast mode", tiers: { Pro: true } },
       { name: "Docker executor", tiers: { Pro: true } },
       { name: "AWS ECS executor", tiers: { Pro: true } },
       { name: "Elasticsearch processor", tiers: { Pro: true } },
@@ -234,12 +235,11 @@ export default function HomepagePricing() {
                       {tier.name === "Pro" ? (
                         <>
                           <a
-                            href="https://gum.co/dkron-pro"
+                            href="https://buy.stripe.com/9AQ9BP1UV8jkgowaEF"
                             target="_blank"
-                            rel="noopener noreferrer"
                             className="block w-full py-3 mt-2 text-base font-medium text-center text-white border-2 border-transparent rounded-md gumroad-button bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:bg-fuchsia-700 md:py-4 md:text-lg md:px-10 hover:no-underline hover:text-white/90"
                           >
-                            Buy
+                            Subscribe
                           </a>
                           <a
                             href={tier.href}

@@ -10,7 +10,9 @@ import {
     TabbedShowLayout,
     Tab,
     ReferenceManyField,
-    useNotify, Button,
+    useNotify,
+    Button,
+    useRecordContext
 } from 'react-admin';
 import ToggleButton from "./ToggleButton"
 import RunButton from "./RunButton"
@@ -20,7 +22,7 @@ import JobIcon from '@mui/icons-material/Update';
 import FullIcon from '@mui/icons-material/BatteryFull';
 import { Tooltip } from '@mui/material';
 import { useState } from 'react';
-import { apiUrl } from '../dataProvider';
+import { apiUrl, httpClient } from '../dataProvider';
 
 // basePath={basePath}
 const JobShowActions = ({ basePath, data, resource }: any) => (
@@ -43,17 +45,17 @@ const FullButton = ({record}: any) => {
     const [loading, setLoading] = useState(false);
     const handleClick = () => {
         setLoading(true);
-        fetch(`${apiUrl}/jobs/${record.job_name}/executions/${record.id}`)
+        httpClient(`${apiUrl}/jobs/${record.job_name}/executions/${record.id}`)
             .then((response) => {
-                if (response.ok) {
+                if (response.status === 200) {
                     notify('Success loading full output');
-                    return response.json()
+                    return response.json
                 }
                 throw response
             })
             .then((data) => {
-                record.output_truncated = false
-                record.output = data.output
+                record.output_truncated = false;
+                record.output = data.output;
             })
             .catch((e) => {
                 notify('Error on loading full output', { type: 'warning' })
@@ -62,6 +64,9 @@ const FullButton = ({record}: any) => {
                 setLoading(false);
             });
     };
+
+    if (record.output_truncated === false) return record.output;
+
     return (
         <Button 
             label="Load full output"
@@ -70,10 +75,12 @@ const FullButton = ({record}: any) => {
         >
             <FullIcon/>
         </Button>
-    );
+    )
 };
 
-const SpecialOutputPanel = ({ id, record, resource }: any) => {
+const SpecialOutputPanel = () => {
+    const record = useRecordContext();
+    if (!record) return null;
     return (
         <div className="execution-output">
             {record.output_truncated ? <div><FullButton record={record} /></div> : ""}

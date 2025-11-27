@@ -2,6 +2,7 @@ package shell
 
 import (
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -40,7 +41,7 @@ var (
 		Name:      "execution_done_count",
 		Help:      "Job Execution Counter",
 	},
-		[]string{"job_name"})
+		[]string{"job_name", "exit_code"})
 
 	jobExitCode = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
@@ -52,20 +53,23 @@ var (
 
 func CollectProcessMetrics(jobname string, pid int, quit chan int) {
 	start := time.Now()
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case exitCode, ok := <-quit:
 			if !ok {
-				// log.Println("Exit code received and quit channel closed.")
+				log.Println("Exit code received and quit channel closed.")
 				return
 			}
+			exitCodeStr := strconv.Itoa(exitCode)
 			cpuUsage.WithLabelValues(jobname).Set(0)
 			memUsage.WithLabelValues(jobname).Set(0)
 			jobExecutionTime.WithLabelValues(jobname).Set(0)
-			jobDoneCount.WithLabelValues(jobname).Inc()
+			jobDoneCount.WithLabelValues(jobname, exitCodeStr).Inc()
 			jobExitCode.WithLabelValues(jobname).Set(float64(exitCode))
-		default:
+		case <-ticker.C:
 			cpu, mem, err := GetTotalCPUMemUsage(pid)
 			if err != nil {
 				log.Printf("Error getting pid statistics: %v", err)
@@ -74,8 +78,6 @@ func CollectProcessMetrics(jobname string, pid int, quit chan int) {
 			cpuUsage.WithLabelValues(jobname).Set(cpu)
 			memUsage.WithLabelValues(jobname).Set(mem)
 			jobExecutionTime.WithLabelValues(jobname).Set(time.Since(start).Seconds())
-
-			time.Sleep(3 * time.Second) // Refreshing metrics in real-time each second
 		}
 	}
 }
