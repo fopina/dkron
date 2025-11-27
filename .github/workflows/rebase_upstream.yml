@@ -1,0 +1,27 @@
+name: auto update
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs: {}
+
+permissions:
+ contents: write
+ pull-requests: write
+
+jobs:
+  autoupdate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # need PAT, instead of github.token, in case rebase update workflows (no permission for that)
+          token: '${{ secrets.PAT }}'
+      - uses: fopina/upstream-to-pr@v1
+        with:
+          # need PAT, instead of github.token, in case rebase update workflows (no permission for that)
+          token: '${{ secrets.PAT }}'
+          upstream-repository: https://github.com/distribworks/dkron
+          upstream-tag: '^v\d+\.\d+\.\d+$'
