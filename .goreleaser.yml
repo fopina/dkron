@@ -29,50 +29,50 @@ builds:
       ldflags:
           - -s -w -X github.com/distribworks/dkron/v4/dkron.Version={{.Version}} -X github.com/distribworks/dkron/v4/dkron.Codename=Apat
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-executor-rabbitmq/
-      id: dkron-executor-rabbitmq
-      binary: dkron-executor-rabbitmq
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-executor-rabbitmq/
+    #   id: dkron-executor-rabbitmq
+    #   binary: dkron-executor-rabbitmq
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-executor-nats/
-      id: dkron-executor-nats
-      binary: dkron-executor-nats
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-executor-nats/
+    #   id: dkron-executor-nats
+    #   binary: dkron-executor-nats
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-executor-kafka/
-      id: dkron-executor-kafka
-      binary: dkron-executor-kafka
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-executor-kafka/
+    #   id: dkron-executor-kafka
+    #   binary: dkron-executor-kafka
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-executor-gcppubsub/
-      id: dkron-executor-gcppubsub
-      binary: dkron-executor-gcppubsub
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-executor-gcppubsub/
+    #   id: dkron-executor-gcppubsub
+    #   binary: dkron-executor-gcppubsub
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-executor-grpc/
-      id: dkron-executor-grpc
-      binary: dkron-executor-grpc
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-executor-grpc/
+    #   id: dkron-executor-grpc
+    #   binary: dkron-executor-grpc
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-processor-files/
-      id: dkron-processor-files
-      binary: dkron-processor-files
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-processor-files/
+    #   id: dkron-processor-files
+    #   binary: dkron-processor-files
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-processor-log/
-      id: dkron-processor-log
-      binary: dkron-processor-log
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-processor-log/
+    #   id: dkron-processor-log
+    #   binary: dkron-processor-log
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-processor-syslog/
-      id: dkron-processor-syslog
-      binary: dkron-processor-syslog
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-processor-syslog/
+    #   id: dkron-processor-syslog
+    #   binary: dkron-processor-syslog
 
-    - <<: *xbuild
-      main: ./builtin/bins/dkron-processor-fluent/
-      id: dkron-processor-fluent
-      binary: dkron-processor-fluent
+    # - <<: *xbuild
+    #   main: ./builtin/bins/dkron-processor-fluent/
+    #   id: dkron-processor-fluent
+    #   binary: dkron-processor-fluent
 
 nfpms:
     - vendor: Distributed Works
@@ -118,15 +118,15 @@ dockers:
       goarch: amd64
       ids: &docker-ids
           - dkron
-          - dkron-executor-rabbitmq
-          - dkron-executor-nats
-          - dkron-executor-kafka
-          - dkron-executor-gcppubsub
-          - dkron-executor-grpc
-          - dkron-processor-files
-          - dkron-processor-log
-          - dkron-processor-syslog
-          - dkron-processor-fluent
+          # - dkron-executor-rabbitmq
+          # - dkron-executor-nats
+          # - dkron-executor-kafka
+          # - dkron-executor-gcppubsub
+          # - dkron-executor-grpc
+          # - dkron-processor-files
+          # - dkron-processor-log
+          # - dkron-processor-syslog
+          # - dkron-processor-fluent
       build_flag_templates:
           - --platform=linux/amd64
 
