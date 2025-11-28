@@ -4,7 +4,7 @@ release:
     prerelease: auto
 
 env:
-    - IMAGE_PREFIX={{ if index .Env "IMAGE_PREFIX"  }}{{ .Env.IMAGE_PREFIX }}{{ else }}dkron{{ end }}
+    - IMAGE_PREFIX={{ if index .Env "IMAGE_PREFIX"  }}{{ .Env.IMAGE_PREFIX }}{{ else }}fopina{{ end }}
 
 builds:
     - &xbuild

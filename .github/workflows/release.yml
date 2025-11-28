@@ -42,4 +42,3 @@ jobs:
           VERSION: ${{ steps.prepare.outputs.tag_name }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          IMAGE_PREFIX: fopina
