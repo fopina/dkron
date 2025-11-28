@@ -16,9 +16,9 @@ builds:
       env:
           - CGO_ENABLED=0
       goos:
-          - freebsd
-          - windows
-          - darwin
+          # - freebsd
+          # - windows
+          # - darwin
           - linux
       goarch:
           - amd64
