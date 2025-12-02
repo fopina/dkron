@@ -106,12 +106,6 @@ func (p *Plugins) DiscoverPlugins() error {
 		p.Executors[pluginName] = raw.(dkplugin.Executor)
 	}
 
-	raw, err := p.pluginFactory(exePath, []string{"shell"}, dkplugin.ExecutorPluginName)
-	if err != nil {
-		return err
-	}
-	p.Executors["shell"] = raw.(dkplugin.Executor)
-
 	return nil
 }
 
