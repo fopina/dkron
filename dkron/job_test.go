@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	proto "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/ntime"
 	"github.com/distribworks/dkron/v4/plugin"
-	proto "github.com/distribworks/dkron/v4/types"
 	"github.com/hashicorp/serf/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -126,6 +126,7 @@ func Test_isRunnable(t *testing.T) {
 	c.Server = true
 	c.LogLevel = logLevel
 	c.DevMode = true
+	c.HTTPAddr = "127.0.0.1:0"
 
 	a := NewAgent(c)
 	a.GRPCClient = &gRPCClientMock{}
@@ -216,6 +217,7 @@ func (gRPCClientMock) ExecutionDone(s string, e *Execution) error { return nil }
 func (gRPCClientMock) GetJob(s string, a string) (*Job, error)    { return nil, nil }
 func (gRPCClientMock) SetJob(j *Job) error                        { return nil }
 func (gRPCClientMock) DeleteJob(s string) (*Job, error)           { return nil, nil }
+func (gRPCClientMock) DeleteExecutions(s string) (*Job, error)    { return nil, nil }
 func (gRPCClientMock) Leave(s string) error                       { return nil }
 func (gRPCClientMock) RunJob(s string) (*Job, error)              { return nil, nil }
 func (gRPCClientMock) RaftGetConfiguration(s string) (*proto.RaftGetConfigurationResponse, error) {

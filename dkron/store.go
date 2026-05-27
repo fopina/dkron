@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	dkronpb "github.com/distribworks/dkron/v4/types"
+	dkronpb "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/buntdb"
 	"go.opentelemetry.io/otel/attribute"
@@ -27,6 +27,7 @@ const (
 
 	jobsPrefix       = "jobs"
 	executionsPrefix = "executions"
+	statsPrefix      = "stats"
 )
 
 var (
@@ -266,6 +267,8 @@ func (s *Store) SetExecutionDone(ctx context.Context, execution *Execution) (boo
 	ctx, span := s.tracer.Start(ctx, "buntdb.set.execution_done")
 	defer span.End()
 
+	var success bool
+	var counted bool
 	err := s.db.Update(func(tx *buntdb.Tx) error {
 		// Load the job from the store
 		var pbj dkronpb.Job
@@ -282,18 +285,52 @@ func (s *Store) SetExecutionDone(ctx context.Context, execution *Execution) (boo
 
 		// Save the execution to store
 		pbe := execution.ToProto()
-		if err := s.setExecutionTxFunc(key, pbe)(tx); err != nil {
+		shouldCount := true
+		if existing, err := tx.Get(key); err != nil && err != buntdb.ErrNotFound {
 			return err
+		} else if existing != "" {
+			var previous dkronpb.Execution
+			if err := proto.Unmarshal([]byte(existing), &previous); err != nil {
+				if err := json.Unmarshal([]byte(existing), &previous); err != nil {
+					return err
+				}
+			}
+
+			previousFinishedAt := previous.GetFinishedAt().AsTime()
+			finishedAt := pbe.GetFinishedAt().AsTime()
+			if previousFinishedAt.After(finishedAt) {
+				return nil
+			}
+			if previousFinishedAt.Equal(finishedAt) && previous.GetSuccess() == pbe.GetSuccess() {
+				if pbe.GetSuccess() {
+					shouldCount = !pbj.LastSuccess.HasValue || !pbj.LastSuccess.Time.AsTime().Equal(finishedAt)
+				} else {
+					shouldCount = !pbj.LastError.HasValue || !pbj.LastError.Time.AsTime().Equal(finishedAt)
+				}
+			}
 		}
 
+		var err error
+		_, err = s.setExecutionTx(tx, key, pbe)
+		if err != nil {
+			return err
+		}
+		if !shouldCount {
+			return nil
+		}
+		counted = true
+
+		success = pbe.Success
 		if pbe.Success {
 			pbj.LastSuccess.HasValue = true
 			pbj.LastSuccess.Time = pbe.FinishedAt
 			pbj.SuccessCount++
+			JobExecutionsSucceededTotal.WithLabelValues(execution.JobName).Inc()
 		} else {
 			pbj.LastError.HasValue = true
 			pbj.LastError.Time = pbe.FinishedAt
 			pbj.ErrorCount++
+			JobExecutionsFailedTotal.WithLabelValues(execution.JobName).Inc()
 		}
 
 		status, err := s.computeStatus(pbj.Name, pbe.Group, tx)
@@ -306,6 +343,12 @@ func (s *Store) SetExecutionDone(ctx context.Context, execution *Execution) (boo
 			return err
 		}
 
+		// Update execution statistics for the day
+		if err := s.incrementStatTxFunc(execution.FinishedAt, success)(tx); err != nil {
+			s.logger.WithError(err).Warn("store: Failed to update execution stats")
+			// Don't fail the whole operation if stats update fails
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -313,7 +356,7 @@ func (s *Store) SetExecutionDone(ctx context.Context, execution *Execution) (boo
 		return false, err
 	}
 
-	return true, nil
+	return counted, nil
 }
 
 func (s *Store) jobHasMetadata(job *Job, metadata map[string]string) bool {
@@ -477,6 +520,45 @@ func (s *Store) GetExecutions(ctx context.Context, jobName string, opts *Executi
 	return s.unmarshalExecutions(kvs, opts.Timezone)
 }
 
+// GetExecution returns a specific execution by job name and execution name.
+func (s *Store) GetExecution(ctx context.Context, jobName string, executionName string) (*Execution, error) {
+	ctx, span := s.tracer.Start(ctx, "buntdb.get.execution", trace.WithAttributes(
+		attribute.String("job_name", jobName),
+		attribute.String("execution_name", executionName)))
+	defer span.End()
+
+	key := fmt.Sprintf("%s:%s:%s", executionsPrefix, jobName, executionName)
+
+	var pbe dkronpb.Execution
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		item, err := tx.Get(key)
+		if err != nil {
+			return err
+		}
+
+		// [TODO] This condition is temporary while we migrate to JSON marshalling for executions
+		// so we can use BuntDB indexes. To be removed in future versions.
+		if err := proto.Unmarshal([]byte(item), &pbe); err != nil {
+			if err := json.Unmarshal([]byte(item), &pbe); err != nil {
+				return err
+			}
+		}
+
+		s.logger.WithFields(logrus.Fields{
+			"job":       jobName,
+			"execution": executionName,
+		}).Debug("store: Retrieved execution from datastore")
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	execution := NewExecutionFromProto(&pbe)
+	return execution, nil
+}
+
 func (s *Store) list(prefix string, checkRoot bool, opts *ExecutionOptions) ([]kv, error) {
 	var found bool
 	kvs := []kv{}
@@ -531,6 +613,34 @@ func (s *Store) GetExecutionGroup(ctx context.Context, execution *Execution, opt
 	return executions, nil
 }
 
+// GetRunningExecutions returns all executions for a job that have started but not finished.
+// An execution is considered running if it has a StartedAt time but FinishedAt is zero.
+// Note: This method loads all executions and filters in memory. Since the store limits
+// executions to MaxExecutions (100) per job and BuntDB is in-memory, this is acceptable.
+// For jobs with concurrent executions forbidden, there should typically be 0-1 running executions.
+func (s *Store) GetRunningExecutions(ctx context.Context, jobName string) ([]*Execution, error) {
+	ctx, span := s.tracer.Start(ctx, "buntdb.get.running_executions", trace.WithAttributes(attribute.String("job_name", jobName)))
+	defer span.End()
+
+	allExecs, err := s.GetExecutions(ctx, jobName, &ExecutionOptions{})
+	if err != nil {
+		if err == buntdb.ErrNotFound {
+			return []*Execution{}, nil
+		}
+		return nil, err
+	}
+
+	var runningExecs []*Execution
+	for _, exec := range allExecs {
+		// An execution is running if it has started but not finished
+		if !exec.StartedAt.IsZero() && exec.FinishedAt.IsZero() {
+			runningExecs = append(runningExecs, exec)
+		}
+	}
+
+	return runningExecs, nil
+}
+
 // GetGroupedExecutions returns executions for a job grouped and with an ordered index
 // to facilitate access.
 func (s *Store) GetGroupedExecutions(ctx context.Context, jobName string, opts *ExecutionOptions) (map[int64][]*Execution, []int64, error) {
@@ -556,38 +666,43 @@ func (s *Store) GetGroupedExecutions(ctx context.Context, jobName string, opts *
 	return groups, byGroup, nil
 }
 
-func (*Store) setExecutionTxFunc(key string, pbe *dkronpb.Execution) func(tx *buntdb.Tx) error {
+func (s *Store) setExecutionTxFunc(key string, pbe *dkronpb.Execution) func(tx *buntdb.Tx) error {
 	return func(tx *buntdb.Tx) error {
-		// Get previous execution
-		i, err := tx.Get(key)
-		if err != nil && err != buntdb.ErrNotFound {
-			return err
-		}
-		// Do nothing if a previous execution exists and is
-		// more recent, avoiding non ordered execution set
-		if i != "" {
-			var p dkronpb.Execution
-			// [TODO] This condition is temporary while we migrate to JSON marshalling for executions
-			// so we can use BuntDb indexes. To be removed in future versions.
-			if err := proto.Unmarshal([]byte(i), &p); err != nil {
-				if err := json.Unmarshal([]byte(i), &p); err != nil {
-					return err
-				}
-			}
-			// Compare existing execution
-			if p.GetFinishedAt().Seconds > pbe.GetFinishedAt().Seconds {
-				return nil
-			}
-		}
-
-		eb, err := json.Marshal(pbe)
-		if err != nil {
-			return err
-		}
-
-		_, _, err = tx.Set(key, string(eb), nil)
+		_, err := s.setExecutionTx(tx, key, pbe)
 		return err
 	}
+}
+
+func (*Store) setExecutionTx(tx *buntdb.Tx, key string, pbe *dkronpb.Execution) (bool, error) {
+	// Get previous execution
+	i, err := tx.Get(key)
+	if err != nil && err != buntdb.ErrNotFound {
+		return false, err
+	}
+	// Do nothing if a previous execution exists and is
+	// more recent, avoiding non ordered execution set
+	if i != "" {
+		var p dkronpb.Execution
+		// [TODO] This condition is temporary while we migrate to JSON marshalling for executions
+		// so we can use BuntDb indexes. To be removed in future versions.
+		if err := proto.Unmarshal([]byte(i), &p); err != nil {
+			if err := json.Unmarshal([]byte(i), &p); err != nil {
+				return false, err
+			}
+		}
+		// Compare existing execution
+		if p.GetFinishedAt().AsTime().After(pbe.GetFinishedAt().AsTime()) {
+			return false, nil
+		}
+	}
+
+	eb, err := json.Marshal(pbe)
+	if err != nil {
+		return false, err
+	}
+
+	_, _, err = tx.Set(key, string(eb), nil)
+	return err == nil, err
 }
 
 // SetExecution Save a new execution and returns the key of the new saved item or an error.
@@ -649,7 +764,44 @@ func (s *Store) SetExecution(ctx context.Context, execution *Execution) (string,
 	return key, nil
 }
 
-// DeleteExecutions removes all executions of a job
+// DeleteExecutions removes all executions of a job and resets counters.
+// This operation is atomic to ensure consistency - if execution deletion succeeds,
+// the counters must be reset, and vice versa. This prevents inconsistent state
+// where executions are deleted but counters still show non-zero values.
+func (s *Store) DeleteExecutions(ctx context.Context, jobName string) error {
+	ctx, span := s.tracer.Start(ctx, "buntdb.delete.executions", trace.WithAttributes(attribute.String("job_name", jobName)))
+	defer span.End()
+
+	err := s.db.Update(func(tx *buntdb.Tx) error {
+		// Delete all executions for the job
+		if err := s.deleteExecutionsTxFunc(jobName)(tx); err != nil {
+			return err
+		}
+
+		// Load the job to reset counters
+		var pbj dkronpb.Job
+		if err := s.getJobTxFunc(jobName, &pbj)(tx); err != nil {
+			return err
+		}
+
+		// Reset counters and timestamps
+		pbj.SuccessCount = 0
+		pbj.ErrorCount = 0
+		pbj.LastSuccess = &dkronpb.Job_NullableTime{HasValue: false}
+		pbj.LastError = &dkronpb.Job_NullableTime{HasValue: false}
+
+		// Save the updated job
+		if err := s.setJobTxFunc(&pbj)(tx); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return err
+}
+
+// deleteExecutionsTxFunc removes all executions of a job (internal helper)
 func (s *Store) deleteExecutionsTxFunc(jobName string) func(tx *buntdb.Tx) error {
 	return func(tx *buntdb.Tx) error {
 		var delkeys []string
@@ -770,4 +922,113 @@ func trimDirectoryKey(key []byte) []byte {
 
 func isDirectoryKey(key []byte) bool {
 	return len(key) > 0 && key[len(key)-1] == ':'
+}
+
+// formatStatDate formats a time to the date key format used in stats storage
+func formatStatDate(t time.Time) string {
+	return t.UTC().Truncate(24 * time.Hour).Format("2006-01-02")
+}
+
+// incrementStatTxFunc returns a transaction function to increment execution stats
+func (s *Store) incrementStatTxFunc(date time.Time, success bool) func(tx *buntdb.Tx) error {
+	return func(tx *buntdb.Tx) error {
+		dateKey := formatStatDate(date)
+		key := fmt.Sprintf("%s:%s", statsPrefix, dateKey)
+
+		var stat ExecutionStat
+
+		item, err := tx.Get(key)
+		if err != nil && err != buntdb.ErrNotFound {
+			return err
+		}
+
+		if err == buntdb.ErrNotFound {
+			// Create new stat entry
+			stat = ExecutionStat{
+				Date:         date.UTC().Truncate(24 * time.Hour),
+				SuccessCount: 0,
+				FailedCount:  0,
+			}
+		} else {
+			// Parse existing stat
+			if err := json.Unmarshal([]byte(item), &stat); err != nil {
+				return err
+			}
+		}
+
+		// Increment the appropriate counter
+		if success {
+			stat.SuccessCount++
+		} else {
+			stat.FailedCount++
+		}
+
+		// Save the updated stat
+		data, err := json.Marshal(stat)
+		if err != nil {
+			return err
+		}
+
+		_, _, err = tx.Set(key, string(data), nil)
+		return err
+	}
+}
+
+// IncrementExecutionStat increments the execution statistics for a given date
+func (s *Store) IncrementExecutionStat(ctx context.Context, date time.Time, success bool) error {
+	_, span := s.tracer.Start(ctx, "buntdb.increment.execution_stat")
+	defer span.End()
+
+	return s.db.Update(s.incrementStatTxFunc(date, success))
+}
+
+// GetExecutionStats retrieves execution statistics for the specified number of days
+func (s *Store) GetExecutionStats(ctx context.Context, days int) (*ExecutionStats, error) {
+	_, span := s.tracer.Start(ctx, "buntdb.get.execution_stats")
+	defer span.End()
+
+	if days <= 0 {
+		days = 30 // Default to 30 days
+	}
+	const maxDays = 365
+	if days > maxDays {
+		days = maxDays
+	}
+
+	stats := &ExecutionStats{
+		Stats: make([]ExecutionStat, 0, days),
+	}
+
+	// Generate date keys for the requested period
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+
+	err := s.db.View(func(tx *buntdb.Tx) error {
+		for i := days - 1; i >= 0; i-- {
+			date := today.AddDate(0, 0, -i)
+			dateKey := formatStatDate(date)
+			key := fmt.Sprintf("%s:%s", statsPrefix, dateKey)
+
+			item, err := tx.Get(key)
+			if err == buntdb.ErrNotFound {
+				// No stats for this day, add zero entry
+				stats.Stats = append(stats.Stats, ExecutionStat{
+					Date:         date,
+					SuccessCount: 0,
+					FailedCount:  0,
+				})
+				continue
+			} else if err != nil {
+				return err
+			}
+
+			var stat ExecutionStat
+			if err := json.Unmarshal([]byte(item), &stat); err != nil {
+				return err
+			}
+			stats.Stats = append(stats.Stats, stat)
+		}
+		return nil
+	})
+
+	return stats, err
 }

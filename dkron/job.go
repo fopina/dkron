@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/distribworks/dkron/v4/extcron"
+	proto "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/ntime"
 	"github.com/distribworks/dkron/v4/plugin"
-	proto "github.com/distribworks/dkron/v4/types"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/buntdb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -37,6 +37,12 @@ const (
 
 	// HashSymbol is the "magic" character used in scheduled to be replaced with a value based on job name
 	HashSymbol = "~"
+
+	// DefaultStaleExecutionThreshold is the duration after which a "running" execution
+	// in storage that is not found in active in-memory executions is considered stale.
+	// Stale executions are automatically cleaned up to prevent permanently blocking
+	// jobs with concurrency=forbid.
+	DefaultStaleExecutionThreshold = 4 * time.Hour
 )
 
 var (
@@ -135,6 +141,9 @@ type Job struct {
 	// Delete the job after the first successful execution.
 	Ephemeral bool `json:"ephemeral"`
 
+	// The job will not be executed before this time.
+	StartsAt ntime.NullableTime `json:"starts_at"`
+
 	// The job will not be executed after this time.
 	ExpiresAt ntime.NullableTime `json:"expires_at"`
 
@@ -175,6 +184,10 @@ func NewJobFromProto(in *proto.Job, logger *logrus.Entry) *Job {
 		t := in.GetLastError().GetTime().AsTime()
 		job.LastError.Set(t)
 	}
+	if in.GetStartsAt().GetHasValue() {
+		t := in.GetStartsAt().GetTime().AsTime()
+		job.StartsAt.Set(t)
+	}
 	if in.GetExpiresAt().GetHasValue() {
 		t := in.GetExpiresAt().GetTime().AsTime()
 		job.ExpiresAt.Set(t)
@@ -208,6 +221,13 @@ func (j *Job) ToProto() *proto.Job {
 	}
 
 	next := timestamppb.New(j.Next)
+
+	startsAt := &proto.Job_NullableTime{
+		HasValue: j.StartsAt.HasValue(),
+	}
+	if j.StartsAt.HasValue() {
+		startsAt.Time = timestamppb.New(j.StartsAt.Get())
+	}
 
 	expiresAt := &proto.Job_NullableTime{
 		HasValue: j.ExpiresAt.HasValue(),
@@ -245,6 +265,7 @@ func (j *Job) ToProto() *proto.Job {
 		Next:           next,
 		Ephemeral:      j.Ephemeral,
 		ExpiresAt:      expiresAt,
+		StartsAt:       startsAt,
 	}
 }
 
@@ -365,6 +386,10 @@ func (j *Job) scheduleHash() string {
 
 // GetNext returns the job's next schedule from now
 func (j *Job) GetNext() (time.Time, error) {
+	if j.StartsAt.HasValue() && time.Now().Before(j.StartsAt.Get()) {
+		return j.StartsAt.Get(), nil
+	}
+
 	if j.Schedule != "" {
 		s, err := extcron.Parse(j.scheduleHash())
 		if err != nil {
@@ -377,9 +402,21 @@ func (j *Job) GetNext() (time.Time, error) {
 }
 
 func (j *Job) isRunnable(logger *logrus.Entry) bool {
-	if j.Disabled || (j.ExpiresAt.HasValue() && time.Now().After(j.ExpiresAt.Get())) {
+	if j.Disabled {
 		logger.WithField("job", j.Name).
-			Debug("job: Skipping execution because job is disabled or expired")
+			Debug("job: Skipping execution because job is disabled")
+		return false
+	}
+
+	if j.StartsAt.HasValue() && time.Now().Before(j.StartsAt.Get()) {
+		logger.WithField("job", j.Name).
+			Debug("job: Skipping execution because job not due to start yet")
+		return false
+	}
+
+	if j.ExpiresAt.HasValue() && time.Now().After(j.ExpiresAt.Get()) {
+		logger.WithField("job", j.Name).
+			Debug("job: Skipping execution because job is expired")
 		return false
 	}
 
@@ -390,9 +427,10 @@ func (j *Job) isRunnable(logger *logrus.Entry) bool {
 	}
 
 	if j.Concurrency == ConcurrencyForbid {
+		// Check in-memory active executions first - these are definitely running
 		exs, err := j.Agent.GetActiveExecutions()
 		if err != nil {
-			logger.WithError(err).Error("job: Error quering for running executions")
+			logger.WithError(err).Error("job: Error querying for active executions")
 			return false
 		}
 
@@ -402,9 +440,35 @@ func (j *Job) isRunnable(logger *logrus.Entry) bool {
 					"job":         j.Name,
 					"concurrency": j.Concurrency,
 					"job_status":  j.Status,
-				}).Info("job: Skipping concurrent execution")
+				}).Info("job: Skipping concurrent execution (found in active executions)")
 				return false
 			}
+		}
+
+		// Check persistent storage for running executions
+		// This catches executions that might be running on nodes after a leader change
+		ctx := context.Background()
+		runningExecs, err := j.Agent.cleanupStaleRunningExecutions(ctx, j.Name, activeExecutionKeys(exs), logger, "job: Cleaning up stale execution from storage")
+		if err != nil {
+			logger.WithError(err).Error("job: Error querying for running executions in storage")
+			return false
+		}
+
+		for _, exec := range runningExecs {
+			// Execution is not in active memory but hasn't exceeded the stale threshold.
+			// Conservatively block to avoid potential concurrent execution.
+			runningFor := time.Now().UTC().Sub(exec.StartedAt)
+			logger.WithFields(logrus.Fields{
+				"job":           j.Name,
+				"concurrency":   j.Concurrency,
+				"job_status":    j.Status,
+				"running_count": len(runningExecs),
+				"execution":     exec.Key(),
+				"node":          exec.NodeName,
+				"started_at":    exec.StartedAt,
+				"running_for":   runningFor.String(),
+			}).Info("job: Skipping concurrent execution (found running execution in storage)")
+			return false
 		}
 	}
 
@@ -445,6 +509,13 @@ func (j *Job) Validate() error {
 		_, err := time.ParseDuration(j.ExecutorConfig["timeout"])
 		if err != nil {
 			return fmt.Errorf("Error parsing job timeout value")
+		}
+	}
+
+	if j.Executor == "shell" && j.ExecutorConfig["mem_limit"] != "" {
+		err := validateMemoryLimit(j.ExecutorConfig["mem_limit"])
+		if err != nil {
+			return fmt.Errorf("Error parsing job memory limit value: %v", err)
 		}
 	}
 
@@ -524,4 +595,75 @@ func findParentJobInChildJobs(jobs []*Job, job *Job) bool {
 		}
 	}
 	return false
+}
+
+// validateMemoryLimit validates a memory limit string and returns an error if invalid.
+// Accepts formats like "1024", "1024MB", "1GB", "512KB", etc.
+func validateMemoryLimit(limit string) error {
+	if limit == "" {
+		return nil // Empty limit is valid (no limit)
+	}
+
+	// Try to parse as a plain number (bytes)
+	if value, err := strconv.ParseInt(limit, 10, 64); err == nil {
+		if value <= 0 {
+			return fmt.Errorf("memory limit must be greater than 0")
+		}
+		return nil
+	}
+
+	// Try to parse with units
+	limit = strings.ToUpper(strings.TrimSpace(limit))
+
+	// Extract the numeric part and unit
+	var numStr string
+	var unit string
+
+	// Find where the number ends and unit begins
+	i := 0
+	for i < len(limit) && (limit[i] >= '0' && limit[i] <= '9' || limit[i] == '.') {
+		i++
+	}
+
+	if i == 0 {
+		return fmt.Errorf("invalid memory limit format: %s", limit)
+	}
+
+	numStr = limit[:i]
+	unit = limit[i:]
+
+	// Parse the numeric part
+	value, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return fmt.Errorf("invalid numeric value in memory limit: %s", numStr)
+	}
+
+	if value <= 0 {
+		return fmt.Errorf("memory limit must be greater than 0")
+	}
+
+	// Validate and convert unit to bytes
+	var multiplier int64
+	switch unit {
+	case "", "B", "BYTES":
+		multiplier = 1
+	case "KB", "K":
+		multiplier = 1024
+	case "MB", "M":
+		multiplier = 1024 * 1024
+	case "GB", "G":
+		multiplier = 1024 * 1024 * 1024
+	case "TB", "T":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return fmt.Errorf("unsupported memory unit: %s (supported: B, KB, MB, GB, TB)", unit)
+	}
+
+	// Check for overflow
+	bytes := int64(value * float64(multiplier))
+	if bytes <= 0 {
+		return fmt.Errorf("memory limit too large or causes overflow")
+	}
+
+	return nil
 }

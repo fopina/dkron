@@ -5,10 +5,10 @@ import (
 	"errors"
 	"strconv"
 
+	dktypes "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	dkplugin "github.com/distribworks/dkron/v4/plugin"
-	dktypes "github.com/distribworks/dkron/v4/types"
+	amqp "github.com/rabbitmq/amqp091-go"
 	log "github.com/sirupsen/logrus"
-	"github.com/streadway/amqp"
 )
 
 // RabbitMQ process publish rabbitmq message when Execute method is called.
@@ -19,6 +19,7 @@ type RabbitMQ struct{}
 //
 //	"executor_config": {
 //			"url": "amqp://guest:guest@localhost:5672/",
+//			"exchange": "amq.default",
 //			"queue.name": "test",
 //			"queue.create": "true",
 //			"queue.durable": "true",
@@ -144,8 +145,12 @@ func publish(cfg map[string]string, ch *amqp.Channel) error {
 	if err != nil {
 		return err
 	}
+	exchange, ok := cfg["exchange"]
+	if !ok {
+		exchange = ""
+	}
 	return ch.Publish(
-		"",                // exchange
+		exchange,          // exchange
 		cfg["queue.name"], // routing key
 		false,             // mandatory
 		false,             // immediate

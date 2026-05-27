@@ -6,8 +6,8 @@ import (
 	"os"
 	"strconv"
 
+	types "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/plugin"
-	"github.com/distribworks/dkron/v4/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,7 +21,7 @@ type FilesOutput struct {
 }
 
 // Process method writes the execution output to a file
-func (l *FilesOutput) Process(args *plugin.ProcessorArgs) types.Execution {
+func (l *FilesOutput) Process(args *plugin.ProcessorArgs) *types.Execution {
 	log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
 	l.parseConfig(args.Config)
 

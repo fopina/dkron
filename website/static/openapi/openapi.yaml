@@ -386,6 +386,32 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/execution'
+    delete:
+      tags:
+        - executions
+      description: |
+        Delete all executions for a job and reset counters (success_count, error_count, last_success, last_error).
+      operationId: deleteExecutionsByJob
+      parameters:
+        - name: job_name
+          in: path
+          description: The job whose executions should be deleted.
+          required: true
+          style: simple
+          explode: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response - returns the updated job with reset counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/job'
+        "404":
+          description: Job not found
+        "500":
+          description: Internal server error
   /jobs/{job_name}/executions/{execution}:
     get:
       tags:
@@ -433,6 +459,90 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/execution'
+
+  /pause:
+    get:
+      tags:
+        - default
+      description: |
+        Returns the current pause status for new job submissions.
+      operationId: pauseStatus
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paused:
+                    type: boolean
+                    description: Whether new job submissions are currently paused
+    post:
+      tags:
+        - default
+      description: |
+        Pauses new job submissions. Existing jobs continue to run, but no new jobs can be created or updated.
+      operationId: pause
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paused:
+                    type: boolean
+                    description: Whether new job submissions are currently paused
+
+  /unpause:
+    post:
+      tags:
+        - default
+      description: |
+        Resumes new job submissions after being paused.
+      operationId: unpause
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paused:
+                    type: boolean
+                    description: Whether new job submissions are currently paused
+
+  /stats:
+    get:
+      tags:
+        - statistics
+      description: |
+        Retrieves execution statistics for a specified number of days.
+      operationId: getExecutionStats
+      parameters:
+        - name: days
+          in: query
+          description: "Number of days of statistics to retrieve (default: 30, max: 365)"
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/execution_stats'
+        "500":
+          description: Internal error
 
   /acl/policies/{name}:
     get:
@@ -547,10 +657,18 @@ components:
           readOnly: false
         schedule:
           type: string
-          description: Cron expression for the job.
+          description: |
+            Cron expression or special schedule descriptor for the job.
+            Supports standard cron expressions, predefined schedules (@hourly, @daily, etc.),
+            fixed intervals (@every 10s), one-time execution (@at 2024-01-01T00:00:00Z),
+            and one-time execution with grace period (@after 2024-01-01T00:00:00Z <PT2H).
           readOnly: false
           examples:
             - '@every 10s'
+            - '@daily'
+            - '0 0 9 * * 1-5'
+            - '@at 2024-12-31T23:59:00Z'
+            - '@after 2024-01-01T09:00:00Z <PT30M'
         timezone:
           type: string
           description: Timezone where the job will be executed. By default and when field is set to empty string, the job will run in local time.
@@ -658,6 +776,16 @@ components:
           type: string
           description: Next execution time
           readOnly: true
+          format: date-time
+        starts_at:
+          type: string
+          description: Job start time
+          readOnly: false
+          format: date-time
+        expires_at:
+          type: string
+          description: Job expiration time
+          readOnly: false
           format: date-time
       description: A Job represents a scheduled task to execute.
     member:
@@ -797,6 +925,35 @@ components:
           description: Policy rules
           examples:
             - PolicyJSON
+    execution_stat:
+      type: object
+      description: Execution statistics for a specific date
+      properties:
+        date:
+          type: string
+          format: date-time
+          description: The date for which this statistic is recorded (truncated to day)
+          examples:
+            - "2026-01-28T00:00:00Z"
+        success_count:
+          type: integer
+          description: Number of successful executions on this date
+          examples:
+            - 42
+        failed_count:
+          type: integer
+          description: Number of failed executions on this date
+          examples:
+            - 3
+    execution_stats:
+      type: object
+      description: Collection of execution statistics over a time period
+      properties:
+        stats:
+          type: array
+          description: Array of daily execution statistics
+          items:
+            $ref: '#/components/schemas/execution_stat'
   securitySchemes:
     TokenAuth:
       type: apiKey

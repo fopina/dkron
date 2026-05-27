@@ -183,6 +183,15 @@ type Config struct {
 
 	// OpenTelemetryEndpoint is the gRPC endpoint to send OpenTelemetry traces to. If empty, no traces will be sent.
 	OpenTelemetryEndpoint string `mapstructure:"otel-endpoint"`
+
+	// AgentRunMaxRetries is the maximum number of retry attempts for AgentRun RPC calls. Defaults to 3.
+	AgentRunMaxRetries int `mapstructure:"agent-run-max-retries"`
+
+	// AgentRunRetryInitialInterval is the initial backoff interval for AgentRun RPC retries. Defaults to 1 second.
+	AgentRunRetryInitialInterval time.Duration `mapstructure:"agent-run-retry-initial-interval"`
+
+	// AgentRunRetryMaxInterval is the maximum backoff interval for AgentRun RPC retries. Defaults to 30 seconds.
+	AgentRunRetryMaxInterval time.Duration `mapstructure:"agent-run-retry-max-interval"`
 }
 
 // DefaultBindPort is the default port that dkron will use for Serf communication
@@ -205,21 +214,24 @@ func DefaultConfig() *Config {
 	tags := map[string]string{}
 
 	return &Config{
-		NodeName:             hostname,
-		BindAddr:             fmt.Sprintf("{{ GetPrivateIP }}:%d", DefaultBindPort),
-		HTTPAddr:             ":8080",
-		Profile:              "lan",
-		LogLevel:             "info",
-		RPCPort:              DefaultRPCPort,
-		MailSubjectPrefix:    "[Dkron]",
-		Tags:                 tags,
-		DataDir:              "dkron.data",
-		Datacenter:           "dc1",
-		Region:               "global",
-		ReconcileInterval:    60 * time.Second,
-		RaftMultiplier:       1,
-		SerfReconnectTimeout: "24h",
-		UI:                   true,
+		NodeName:                     hostname,
+		BindAddr:                     fmt.Sprintf("{{ GetPrivateIP }}:%d", DefaultBindPort),
+		HTTPAddr:                     ":8080",
+		Profile:                      "lan",
+		LogLevel:                     "info",
+		RPCPort:                      DefaultRPCPort,
+		MailSubjectPrefix:            "[Dkron]",
+		Tags:                         tags,
+		DataDir:                      "dkron.data",
+		Datacenter:                   "dc1",
+		Region:                       "global",
+		ReconcileInterval:            60 * time.Second,
+		RaftMultiplier:               1,
+		SerfReconnectTimeout:         "24h",
+		UI:                           true,
+		AgentRunMaxRetries:           3,
+		AgentRunRetryInitialInterval: 1 * time.Second,
+		AgentRunRetryMaxInterval:     30 * time.Second,
 	}
 }
 
@@ -333,6 +345,14 @@ Format there: https://golang.org/pkg/time/#ParseDuration`)
 	cmdFlags.String("otel-endpoint", "", "OpenTelemetry gRPC endpoint")
 	cmdFlags.Bool("disable-usage-stats", c.DisableUsageStats, "Disable sending anonymous usage stats")
 
+	// AgentRun retry configuration
+	cmdFlags.Int("agent-run-max-retries", c.AgentRunMaxRetries,
+		"Maximum number of retry attempts for AgentRun RPC calls when agent is temporarily unavailable")
+	cmdFlags.Duration("agent-run-retry-initial-interval", c.AgentRunRetryInitialInterval,
+		"Initial backoff interval for AgentRun RPC retries")
+	cmdFlags.Duration("agent-run-retry-max-interval", c.AgentRunRetryMaxInterval,
+		"Maximum backoff interval for AgentRun RPC retries")
+
 	return cmdFlags
 }
 
@@ -416,8 +436,14 @@ func normalizeAdvertise(addr string, bind string, defport int, dev bool) (string
 		return addr, nil
 	}
 
+	// Strip port from bind address if present before calling LookupIP
+	bindHost := bind
+	if host, _, err := net.SplitHostPort(bind); err == nil {
+		bindHost = host
+	}
+	
 	// TODO: Revisit this as the lookup doesn't work with IP addresses
-	ips, err := net.LookupIP(bind)
+	ips, err := net.LookupIP(bindHost)
 	if err != nil {
 		return "", ErrResolvingHost //fmt.Errorf("Error resolving bind address %q: %v", bind, err)
 	}

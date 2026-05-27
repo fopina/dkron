@@ -51,7 +51,7 @@ func setupAPITest(t *testing.T, port string) (dir string, a *Agent) {
 }
 
 func TestAPIJobCreateUpdate(t *testing.T) {
-	port := "8091"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
 	dir, _ := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -103,7 +103,7 @@ func TestAPIJobCreateUpdate(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateParentJob_SameParent(t *testing.T) {
-	resp := postJob(t, "8092", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "test_job",
 		"schedule": "@every 1m",
 		"command": "date",
@@ -121,7 +121,7 @@ func TestAPIJobCreateUpdateParentJob_SameParent(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateParentJob_NoParent(t *testing.T) {
-	resp := postJob(t, "8093", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "test_job",
 		"schedule": "@every 1m",
 		"command": "date",
@@ -139,8 +139,65 @@ func TestAPIJobCreateUpdateParentJob_NoParent(t *testing.T) {
 	assert.Contains(t, string(errJSON)+"\n", string(body))
 }
 
+func TestAPIJobCreateUpdateParentJob_KeepDependents(t *testing.T) {
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
+	dir, a := setupAPITest(t, port)
+	defer os.RemoveAll(dir)
+	defer a.Stop() // nolint: errcheck
+
+	jsonStr := []byte(`{
+		"name": "parentjobkeep",
+		"schedule": "@every 1m",
+		"executor": "shell",
+		"executor_config": {"command": "date"},
+		"disabled": true
+	}`)
+
+	resp, err := http.Post(baseURL+"/jobs", "encoding/json", bytes.NewBuffer(jsonStr))
+	require.NoError(t, err, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	jsonStr = []byte(`{
+		"name": "childjobkeep",
+		"parent_job": "parentjobkeep",
+		"schedule": "@every 1m",
+		"executor": "shell",
+		"executor_config": {"command": "date"},
+		"disabled": true
+	}`)
+
+	resp, err = http.Post(baseURL+"/jobs", "encoding/json", bytes.NewBuffer(jsonStr))
+	require.NoError(t, err, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	jsonStr = []byte(`{
+		"name": "parentjobkeep",
+		"schedule": "@every 1m",
+		"executor": "shell",
+		"executor_config": {"command": "date"},
+		"disabled": true
+	}`)
+
+	resp, err = http.Post(baseURL+"/jobs", "encoding/json", bytes.NewBuffer(jsonStr))
+	require.NoError(t, err, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	resp, err = http.Get(baseURL + "/jobs/parentjobkeep")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	var updatedJob Job
+	if err := json.Unmarshal(body, &updatedJob); err != nil {
+		t.Fatal(err)
+	}
+
+	require.Len(t, updatedJob.DependentJobs, 1)
+	assert.Equal(t, "childjobkeep", updatedJob.DependentJobs[0])
+}
+
 func TestAPIJobCreateUpdateValidationBadName(t *testing.T) {
-	resp := postJob(t, "8094", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "BAD JOB NAME!",
 		"schedule": "@every 1m",
 		"executor": "shell",
@@ -152,7 +209,7 @@ func TestAPIJobCreateUpdateValidationBadName(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationValidName(t *testing.T) {
-	resp := postJob(t, "8095", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "abcdefghijklmnopqrstuvwxyz0123456789-_ßñëäïüøüáéíóýćàèìòùâêîôûæšłç",
 		"schedule": "@every 1m",
 		"executor": "shell",
@@ -164,7 +221,7 @@ func TestAPIJobCreateUpdateValidationValidName(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationEmptyName(t *testing.T) {
-	port := "8101"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
 	dir, a := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -197,7 +254,7 @@ func TestAPIJobCreateUpdateValidationEmptyName(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationBadSchedule(t *testing.T) {
-	resp := postJob(t, "8097", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "testjob",
 		"schedule": "@at badtime",
 		"executor": "shell",
@@ -209,7 +266,7 @@ func TestAPIJobCreateUpdateValidationBadSchedule(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationBadConcurrency(t *testing.T) {
-	resp := postJob(t, "8098", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "testjob",
 		"schedule": "@every 1m",
 		"executor": "shell",
@@ -222,7 +279,7 @@ func TestAPIJobCreateUpdateValidationBadConcurrency(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationBadTimezone(t *testing.T) {
-	resp := postJob(t, "8099", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "testjob",
 		"schedule": "@every 1m",
 		"executor": "shell",
@@ -235,7 +292,7 @@ func TestAPIJobCreateUpdateValidationBadTimezone(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateValidationBadShellExecutorTimeout(t *testing.T) {
-	resp := postJob(t, "8099", []byte(`{
+	resp := postJob(t, getFreePort(t), []byte(`{
 		"name": "testjob",
 		"schedule": "@every 1m",
 		"executor": "shell",
@@ -247,7 +304,7 @@ func TestAPIJobCreateUpdateValidationBadShellExecutorTimeout(t *testing.T) {
 }
 
 func TestAPIGetNonExistentJobReturnsNotFound(t *testing.T) {
-	port := "8096"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
 	dir, a := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -259,7 +316,7 @@ func TestAPIGetNonExistentJobReturnsNotFound(t *testing.T) {
 }
 
 func TestAPIJobCreateUpdateJobWithInvalidParentIsNotCreated(t *testing.T) {
-	port := "8100"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
 	dir, a := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -289,7 +346,7 @@ func TestAPIJobCreateUpdateJobWithInvalidParentIsNotCreated(t *testing.T) {
 }
 
 func TestAPIJobRestore(t *testing.T) {
-	port := "8109"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1/restore", port)
 	dir, a := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -326,7 +383,7 @@ func TestAPIJobRestore(t *testing.T) {
 }
 
 func TestAPIJobOutputTruncate(t *testing.T) {
-	port := "8190"
+	port := getFreePort(t)
 	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
 	dir, a := setupAPITest(t, port)
 	defer os.RemoveAll(dir)
@@ -431,4 +488,200 @@ func postJob(t *testing.T, port string, jsonStr []byte) *http.Response {
 	require.NoError(t, err, err)
 
 	return resp
+}
+
+// TestAPILeaderEndpointsNoRaftNoPanic tests that leader-related endpoints
+// don't panic when accessed before Raft is fully initialized (issue #1702)
+func TestAPILeaderEndpointsNoRaftNoPanic(t *testing.T) {
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
+
+	dir, err := ioutil.TempDir("", "dkron-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ip1, returnFn1 := testutil.TakeIP()
+	defer returnFn1()
+
+	c := DefaultConfig()
+	c.BindAddr = ip1.String()
+	c.HTTPAddr = fmt.Sprintf("127.0.0.1:%s", port)
+	c.NodeName = "test"
+	c.Server = true
+	c.LogLevel = logLevel
+	c.BootstrapExpect = 1
+	c.DevMode = true
+	c.DataDir = dir
+
+	a := NewAgent(c)
+
+	// Start HTTP server but don't wait for leadership
+	// This creates a window where HTTP is up but Raft might not be fully initialized
+	go a.Start()   // nolint: errcheck
+	defer a.Stop() // nolint: errcheck
+
+	// Give HTTP server a moment to start but not necessarily Raft
+	time.Sleep(500 * time.Millisecond)
+
+	// These endpoints should not panic even if called before Raft is ready
+	resp, err := http.Get(baseURL + "/isleader")
+	if err == nil {
+		resp.Body.Close()
+		// If we get a response, it should be valid (either 200 or 404)
+		assert.True(t, resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound,
+			"isleader endpoint should return valid status code")
+	}
+
+	resp, err = http.Get(baseURL + "/leader")
+	if err == nil {
+		resp.Body.Close()
+		// If we get a response, it should be valid (either 200 or 404 or 500)
+		assert.True(t, resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusInternalServerError,
+			"leader endpoint should return valid status code")
+	}
+}
+
+func TestAPIPauseUnpause(t *testing.T) {
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://localhost:%s/v1", port)
+	dir, a := setupAPITest(t, port)
+	defer os.RemoveAll(dir)
+	defer a.Stop() // nolint: errcheck
+
+	// Check initial pause status (should be false)
+	resp, err := http.Get(baseURL + "/pause")
+	require.NoError(t, err)
+	body, _ := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(body), `"paused":false`)
+
+	// Pause new job submissions
+	resp, err = http.Post(baseURL+"/pause", "application/json", nil)
+	require.NoError(t, err)
+	body, _ = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(body), `"paused":true`)
+
+	// Verify pause status
+	resp, err = http.Get(baseURL + "/pause")
+	require.NoError(t, err)
+	body, _ = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(body), `"paused":true`)
+
+	// Try to create a job while paused (should fail)
+	jsonStr := []byte(`{
+		"name": "test_job_paused",
+		"schedule": "@every 1m",
+		"executor": "shell",
+		"executor_config": {"command": "date"}
+	}`)
+	resp, err = http.Post(baseURL+"/jobs", "application/json", bytes.NewBuffer(jsonStr))
+	require.NoError(t, err)
+	body, _ = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Contains(t, string(body), "paused")
+
+	// Unpause new job submissions
+	resp, err = http.Post(baseURL+"/unpause", "application/json", nil)
+	require.NoError(t, err)
+	body, _ = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(body), `"paused":false`)
+
+	// Verify unpause status
+	resp, err = http.Get(baseURL + "/pause")
+	require.NoError(t, err)
+	body, _ = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, string(body), `"paused":false`)
+
+	// Try to create a job after unpause (should succeed)
+	resp, err = http.Post(baseURL+"/jobs", "application/json", bytes.NewBuffer(jsonStr))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	port := getFreePort(t)
+	healthURL := fmt.Sprintf("http://localhost:%s/health", port)
+	dir, a := setupAPITest(t, port)
+	defer os.RemoveAll(dir)
+
+	// Test healthy state
+	resp, err := http.Get(healthURL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var healthResp map[string]interface{}
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(body, &healthResp)
+	require.NoError(t, err)
+
+	// Check status is healthy
+	assert.Equal(t, "healthy", healthResp["status"])
+
+	// Check leader field is present for server nodes
+	if a.config.Server {
+		_, hasLeader := healthResp["leader"]
+		assert.True(t, hasLeader, "health response should include leader field for server nodes")
+	}
+}
+
+func TestPrometheusMetricsEndpoint(t *testing.T) {
+	port := getFreePort(t)
+	metricsURL := fmt.Sprintf("http://localhost:%s/metrics", port)
+
+	dir, err := ioutil.TempDir("", "dkron-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ip1, returnFn1 := testutil.TakeIP()
+	defer returnFn1()
+
+	c := DefaultConfig()
+	c.BindAddr = ip1.String()
+	c.HTTPAddr = fmt.Sprintf("127.0.0.1:%s", port)
+	c.NodeName = "test"
+	c.Server = true
+	c.LogLevel = logLevel
+	c.BootstrapExpect = 1
+	c.DevMode = true
+	c.DataDir = dir
+	c.EnablePrometheus = true
+
+	a := NewAgent(c)
+	_ = a.Start()
+	defer a.Stop() // nolint: errcheck
+
+	for !a.IsLeader() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(1 * time.Second)
+
+	req, err := http.NewRequest(http.MethodGet, metricsURL, nil)
+	require.NoError(t, err)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
+	assert.Empty(t, resp.Header.Get("Content-Encoding"))
+	assert.Contains(t, string(body), "dkron_")
 }

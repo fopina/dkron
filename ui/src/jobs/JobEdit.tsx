@@ -1,4 +1,4 @@
-import { 
+import {
     Edit,
     SelectInput,
     TextInput,
@@ -8,19 +8,53 @@ import {
     NumberInput,
     DateTimeInput,
     required,
-    useRecordContext
+    useRecordContext,
+    TopToolbar,
+    ListButton,
+    ShowButton,
 } from 'react-admin';
 import { JsonInput } from "react-admin-json-view";
 
+const JobEditActions = () => (
+    <TopToolbar sx={{ mt: 2, mb: 1 }}>
+        <ListButton />
+        <ShowButton />
+    </TopToolbar>
+);
+
+const JobCreateActions = () => (
+    <TopToolbar sx={{ mt: 2, mb: 1 }}>
+        <ListButton />
+    </TopToolbar>
+);
+
 export const JobEdit = () => {
     const record = useRecordContext();
-    return (<Edit {...record}>
-        <EditForm />
-    </Edit>);
+    return (
+        <Edit
+            {...record}
+            actions={<JobEditActions />}
+            sx={{
+                '& .RaEdit-main': {
+                    mt: 2,
+                },
+            }}
+        >
+            <EditForm />
+        </Edit>
+    );
 }
 
 export const JobCreate = (props: any) => (
-    <Create {...props}>
+    <Create
+        {...props}
+        actions={<JobCreateActions />}
+        sx={{
+            '& .RaCreate-main': {
+                mt: 2,
+            },
+        }}
+    >
         <EditForm />
     </Create>
 );
@@ -36,8 +70,9 @@ const EditForm = (record: any) => (
         <TextInput source="owner_email" helperText="Email address to use for notifications."/>
         <TextInput source="parent_job" helperText="Job id of job that this job is dependent upon." />
         <BooleanInput source="ephemeral" helperText="Delete the job after the first successful execution." />
+        <DateTimeInput source="starts_at" helperText="The job will not be executed before this time." />
         <DateTimeInput source="expires_at" helperText="The job will not be executed after this time." />
-        <SelectInput source="concurrency" 
+        <SelectInput source="concurrency"
             choices={[
                 { id: 'allow', name: 'Allow' },
                 { id: 'forbid', name: 'Forbid' },

@@ -16,9 +16,10 @@ import (
 	"time"
 
 	"github.com/devopsfaith/krakend-usage/client"
+	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/plugin"
-	proto "github.com/distribworks/dkron/v4/types"
 	"github.com/hashicorp/go-metrics"
+	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/memberlist"
 	"github.com/hashicorp/raft"
@@ -68,6 +69,9 @@ type Agent struct {
 
 	//ExecutorPlugins maps executor plugins
 	ExecutorPlugins map[string]plugin.Executor
+
+	// PluginClients maps plugin names to their client instances for health checking
+	PluginClients map[string]*goplugin.Client
 
 	// HTTPTransport is a swappable interface for the HTTP server interface
 	HTTPTransport Transport
@@ -128,6 +132,10 @@ type Agent struct {
 	logger *logrus.Entry
 
 	tracer trace.Tracer
+
+	// pauseNewJobs controls whether new jobs can be created or updated
+	pauseNewJobs bool
+	pauseMu      sync.RWMutex
 }
 
 // ProcessorFactory is a function type that creates a new instance
@@ -136,8 +144,9 @@ type ProcessorFactory func() (plugin.Processor, error)
 
 // Plugins struct to store loaded plugins of each type
 type Plugins struct {
-	Processors map[string]plugin.Processor
-	Executors  map[string]plugin.Executor
+	Processors    map[string]plugin.Processor
+	Executors     map[string]plugin.Executor
+	PluginClients map[string]*goplugin.Client
 }
 
 // AgentOption type that defines agent options
@@ -230,7 +239,7 @@ func (a *Agent) Start() error {
 
 		grpcServer := grpc.NewServer(opts...)
 		as := NewAgentServer(a, a.logger)
-		proto.RegisterAgentServer(grpcServer, as)
+		typesv1.RegisterAgentServiceServer(grpcServer, as)
 		go func() {
 			if err := grpcServer.Serve(l); err != nil {
 				a.logger.Fatal(err)
@@ -283,7 +292,9 @@ func (a *Agent) Stop() error {
 		}
 
 		// TODO: Check why Shutdown().Error() is not working
-		_ = a.raft.Shutdown()
+		if a.raft != nil {
+			_ = a.raft.Shutdown()
+		}
 
 		if err := a.Store.Shutdown(); err != nil {
 			return err
@@ -646,6 +657,9 @@ func (a *Agent) StartServer() {
 
 // Utility method to get leader nodename
 func (a *Agent) leaderMember() (*serf.Member, error) {
+	if a.raft == nil {
+		return nil, ErrLeaderNotFound
+	}
 	l := a.raft.Leader()
 	for _, member := range a.serf.Members() {
 		if member.Tags["rpc_addr"] == string(l) {
@@ -657,6 +671,9 @@ func (a *Agent) leaderMember() (*serf.Member, error) {
 
 // IsLeader checks if this server is the cluster leader
 func (a *Agent) IsLeader() bool {
+	if a.raft == nil {
+		return false
+	}
 	return a.raft.State() == raft.Leader
 }
 
@@ -672,6 +689,9 @@ func (a *Agent) LocalMember() serf.Member {
 
 // Leader is used to return the Raft leader
 func (a *Agent) Leader() raft.ServerAddress {
+	if a.raft == nil {
+		return ""
+	}
 	return a.raft.Leader()
 }
 
@@ -834,7 +854,10 @@ func (a *Agent) bindRPCAddr() string {
 
 // applySetJob is a helper method to be called when
 // a job property need to be modified from the leader.
-func (a *Agent) applySetJob(job *proto.Job) error {
+func (a *Agent) applySetJob(job *typesv1.Job) error {
+	if a.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
 	cmd, err := Encode(SetJobType, job)
 	if err != nil {
 		return err
@@ -856,7 +879,81 @@ func (a *Agent) applySetJob(job *proto.Job) error {
 
 // RaftApply applies a command to the Raft log
 func (a *Agent) RaftApply(cmd []byte) raft.ApplyFuture {
+	if a.raft == nil {
+		return nil
+	}
 	return a.raft.Apply(cmd, raftTimeout)
+}
+
+func activeExecutionKeys(executions []*typesv1.Execution) map[string]struct{} {
+	keys := make(map[string]struct{}, len(executions))
+	for _, execution := range executions {
+		keys[execution.Key()] = struct{}{}
+	}
+
+	return keys
+}
+
+func (a *Agent) markExecutionDone(execution *Execution) error {
+	execDoneReq := &typesv1.ExecutionDoneRequest{
+		Execution: execution.ToProto(),
+	}
+
+	cmd, err := Encode(ExecutionDoneType, execDoneReq)
+	if err != nil {
+		return err
+	}
+
+	af := a.RaftApply(cmd)
+	if af == nil {
+		return errors.New("raft apply unavailable")
+	}
+
+	return af.Error()
+}
+
+func (a *Agent) cleanupStaleRunningExecutions(ctx context.Context, jobName string, activeExecutionKeys map[string]struct{}, logger *logrus.Entry, staleLogMessage string) ([]*Execution, error) {
+	runningExecs, err := a.Store.GetRunningExecutions(ctx, jobName)
+	if err != nil {
+		return nil, err
+	}
+
+	remainingRunning := make([]*Execution, 0)
+	now := time.Now().UTC()
+
+	for _, exec := range runningExecs {
+		if _, ok := activeExecutionKeys[exec.Key()]; ok {
+			continue
+		}
+
+		runningFor := now.Sub(exec.StartedAt)
+		if runningFor <= DefaultStaleExecutionThreshold {
+			remainingRunning = append(remainingRunning, exec)
+			continue
+		}
+
+		logger.WithFields(logrus.Fields{
+			"job":         jobName,
+			"execution":   exec.Key(),
+			"node":        exec.NodeName,
+			"started_at":  exec.StartedAt,
+			"running_for": runningFor.String(),
+		}).Warn(staleLogMessage)
+
+		exec.FinishedAt = now
+		exec.Success = false
+		exec.Output += "\nExecution marked as failed: detected as stale (not active on any node)"
+
+		if err := a.markExecutionDone(exec); err != nil {
+			logger.WithError(err).WithFields(logrus.Fields{
+				"execution": exec.Key(),
+				"node":      exec.NodeName,
+			}).Error("agent: Error applying stale execution cleanup")
+			remainingRunning = append(remainingRunning, exec)
+		}
+	}
+
+	return remainingRunning, nil
 }
 
 // GetRunningJobs returns amount of active jobs of the local agent
@@ -870,8 +967,8 @@ func (a *Agent) GetRunningJobs() int {
 }
 
 // GetActiveExecutions returns running executions globally
-func (a *Agent) GetActiveExecutions() ([]*proto.Execution, error) {
-	var executions []*proto.Execution
+func (a *Agent) GetActiveExecutions() ([]*typesv1.Execution, error) {
+	var executions []*typesv1.Execution
 
 	for _, s := range a.LocalServers() {
 		exs, err := a.GRPCClient.GetActiveExecutions(s.RPCAddr.String())
@@ -947,4 +1044,27 @@ func (a *Agent) startReporter() {
 			a.logger.Warn("agent: unable to create the usage report client:", err.Error())
 		}
 	}()
+}
+
+// PauseNewJobs pauses new job submissions
+func (a *Agent) PauseNewJobs() {
+	a.pauseMu.Lock()
+	defer a.pauseMu.Unlock()
+	a.pauseNewJobs = true
+	a.logger.Info("agent: New job submissions paused")
+}
+
+// UnpauseNewJobs resumes new job submissions
+func (a *Agent) UnpauseNewJobs() {
+	a.pauseMu.Lock()
+	defer a.pauseMu.Unlock()
+	a.pauseNewJobs = false
+	a.logger.Info("agent: New job submissions resumed")
+}
+
+// IsNewJobsPaused returns whether new job submissions are paused
+func (a *Agent) IsNewJobsPaused() bool {
+	a.pauseMu.RLock()
+	defer a.pauseMu.RUnlock()
+	return a.pauseNewJobs
 }

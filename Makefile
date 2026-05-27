@@ -5,7 +5,7 @@ $(LINUX_PKGS):
 	fury push --as distribworks $@
 
 PACKAGE_NAME          := github.com/distribworks/dkron
-GOLANG_CROSS_VERSION  ?= v1.22
+GOLANG_CROSS_VERSION  ?= v1.26
 
 .PHONY: release-dry-run
 release-dry-run:
@@ -58,12 +58,10 @@ clean:
 	GOBIN=`pwd` go clean -i ./builtin/...
 	GOBIN=`pwd` go clean
 
-.PHONY: docs apidoc test ui updatetestcert
+.PHONY: docs apidoc test ui updatetestcert test-email
 docs:
 	# scripts/run doc --dir website/docs/cli
-
-	# Build with docker while bun reach compatibility with docusaurs
-	cd website; yarn build --out-dir ../public
+	cd website; pnpm build --out-dir ../public
 	ghp-import -p public
 
 test:
@@ -72,23 +70,59 @@ test:
 localtest:
 	go test -v ./... | sed ''/PASS/s//$$(printf "\033[32mPASS\033[0m")/'' | sed ''/FAIL/s//$$(printf "\033[31mFAIL\033[0m")/''
 
+test-email:
+	@echo "Starting Mailpit for email testing..."
+	@docker run -d --rm --name dkron-mailpit -p 8025:8025 -p 1025:1025 axllent/mailpit 2>/dev/null || true
+	@echo "Mailpit started. Web UI available at http://localhost:8025"
+	@echo "Running email notification tests..."
+	@go test -v -run TestNotifier_sendExecutionEmail ./dkron
+	@echo "Tests complete. View captured emails at http://localhost:8025"
+	@echo "To stop Mailpit, run: docker stop dkron-mailpit"
+
+# E2E tests - run full test suite with build
+e2e:
+	@echo "Running E2E tests..."
+	./e2e/run-e2e-tests.sh
+
+# E2E tests - run without rebuilding
+e2e-quick:
+	@echo "Running E2E tests (no build)..."
+	./e2e/run-e2e-tests.sh --no-build
+
+# E2E tests - keep cluster running after tests for debugging
+e2e-debug:
+	@echo "Running E2E tests (keeping cluster running)..."
+	./e2e/run-e2e-tests.sh --keep
+
 updatetestcert:
 	wget https://badssl.com/certs/badssl.com-client.p12 -q -O badssl.com-client.p12
-	openssl pkcs12 -in badssl.com-client.p12 -nocerts -nodes -passin pass:badssl.com -out plugin/http/testdata/badssl.com-client-key-decrypted.pem
-	openssl pkcs12 -in badssl.com-client.p12 -nokeys -passin pass:badssl.com -out plugin/http/testdata/badssl.com-client.pem
+	openssl pkcs12 -in badssl.com-client.p12 -nocerts -nodes -passin pass:badssl.com -legacy -out plugin/http/testdata/badssl.com-client-key-decrypted.pem
+	openssl pkcs12 -in badssl.com-client.p12 -nokeys -passin pass:badssl.com -legacy -out plugin/http/testdata/badssl.com-client.pem
 	rm badssl.com-client.p12
 
 ui/node_modules: ui/package.json
-	cd ui; bun install
+	cd ui; pnpm install
 	# touch the directory so Make understands it is up to date
 	touch ui/node_modules
 
 dkron/ui-dist: ui/node_modules ui/public/* ui/src/* ui/src/*/*
 	rm -rf dkron/ui-dist
-	cd ui; yarn build --out-dir ../dkron/ui-dist
+	cd ui; pnpm build --out-dir ../dkron/ui-dist
 
-proto: types/dkron.pb.go types/executor.pb.go types/pro.pb.go
+# deprecated
+# proto: types/dkron.pb.go types/executor.pb.go types/pro.pb.go
+.PHONY: proto
+proto:
+	@echo "Generating protobuf files using Buf"
+	buf generate
 
+lint: proto-lint
+
+proto-lint:
+	@echo "Linting protobuf files using Buf"
+	buf lint
+
+# deprecated
 types/%.pb.go: proto/%.proto
 	protoc -I proto/ --go_out=types --go_opt=paths=source_relative --go-grpc_out=types --go-grpc_opt=paths=source_relative $<
 
@@ -100,4 +134,4 @@ ui: dkron/ui-dist
 main: dkron/ui-dist types/dkron.pb.go types/executor.pb.go *.go */*.go */*/*.go */*/*/*.go
 	GOBIN=`pwd` go install ./builtin/...
 	go mod tidy
-	go build -tags=hashicorpmetrics main.go
+	go build main.go

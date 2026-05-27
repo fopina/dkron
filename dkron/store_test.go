@@ -2,9 +2,11 @@ package dkron
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/buntdb"
@@ -82,6 +84,19 @@ func TestStore(t *testing.T) {
 	testExecution.Id = testExecution.Key()
 	assert.Equal(t, testExecution, execs[0])
 	assert.Len(t, execs, 1)
+
+	// Test GetExecution method
+	execution, err := s.GetExecution(ctx, "test", testExecution.Key())
+	assert.NoError(t, err)
+	assert.Equal(t, testExecution, execution)
+
+	// Test GetExecution with non-existent execution
+	_, err = s.GetExecution(ctx, "test", "non-existent")
+	assert.EqualError(t, err, buntdb.ErrNotFound.Error())
+
+	// Test GetExecution with non-existent job
+	_, err = s.GetExecution(ctx, "non-existent-job", testExecution.Key())
+	assert.EqualError(t, err, buntdb.ErrNotFound.Error())
 
 	_, err = s.DeleteJob(ctx, "test")
 	assert.NoError(t, err)
@@ -296,6 +311,163 @@ func Test_computeStatus(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestStore_GetRunningExecutions(t *testing.T) {
+	log := getTestLogger()
+	s, err := NewStore(log, otel.Tracer("test"))
+	require.NoError(t, err)
+	defer s.Shutdown() // nolint: errcheck
+
+	ctx := context.Background()
+
+	// Create a test job
+	testJob := &Job{
+		Name:           "test",
+		Schedule:       "@every 2s",
+		Executor:       "shell",
+		ExecutorConfig: map[string]string{"command": "/bin/false"},
+		Disabled:       true,
+	}
+	err = s.SetJob(ctx, testJob, true)
+	require.NoError(t, err)
+
+	// Test 1: No executions - should return empty slice
+	runningExecs, err := s.GetRunningExecutions(ctx, "test")
+	assert.NoError(t, err)
+	assert.Empty(t, runningExecs)
+
+	// Test 2: Add a running execution (StartedAt set, FinishedAt zero)
+	runningExecution := &Execution{
+		JobName:    "test",
+		StartedAt:  time.Now().UTC(),
+		FinishedAt: time.Time{}, // Zero time means not finished
+		Success:    false,
+		Output:     "running",
+		NodeName:   "testNode1",
+		Group:      time.Now().UnixNano(),
+		Attempt:    1,
+	}
+	_, err = s.SetExecution(ctx, runningExecution)
+	require.NoError(t, err)
+
+	// Should find the running execution
+	runningExecs, err = s.GetRunningExecutions(ctx, "test")
+	assert.NoError(t, err)
+	assert.Len(t, runningExecs, 1)
+	assert.Equal(t, "test", runningExecs[0].JobName)
+	assert.Equal(t, "testNode1", runningExecs[0].NodeName)
+
+	// Test 3: Add a finished execution (both StartedAt and FinishedAt set)
+	finishedExecution := &Execution{
+		JobName:    "test",
+		StartedAt:  time.Now().UTC(),
+		FinishedAt: time.Now().UTC(), // Finished
+		Success:    true,
+		Output:     "finished",
+		NodeName:   "testNode2",
+		Group:      time.Now().UnixNano(),
+		Attempt:    1,
+	}
+	_, err = s.SetExecution(ctx, finishedExecution)
+	require.NoError(t, err)
+
+	// Should still find only the running execution
+	runningExecs, err = s.GetRunningExecutions(ctx, "test")
+	assert.NoError(t, err)
+	assert.Len(t, runningExecs, 1)
+	assert.Equal(t, "testNode1", runningExecs[0].NodeName)
+
+	// Test 4: Mark the running execution as done
+	runningExecution.FinishedAt = time.Now().UTC()
+	runningExecution.Success = true
+	_, err = s.SetExecutionDone(ctx, runningExecution)
+	require.NoError(t, err)
+
+	// Should now find no running executions
+	runningExecs, err = s.GetRunningExecutions(ctx, "test")
+	assert.NoError(t, err)
+	assert.Empty(t, runningExecs)
+
+	// Test 5: Test with non-existent job - should return empty slice, not error
+	runningExecs, err = s.GetRunningExecutions(ctx, "nonexistent")
+	assert.NoError(t, err)
+	assert.Empty(t, runningExecs)
+}
+
+func TestSetExecutionDonePrometheusMetrics(t *testing.T) {
+	s := setupStore(t)
+	defer s.Shutdown() // nolint: errcheck
+	ctx := context.Background()
+
+	successJobName := fmt.Sprintf("success-%d", time.Now().UnixNano())
+	failedJobName := fmt.Sprintf("failed-%d", time.Now().UnixNano())
+
+	require.NoError(t, s.SetJob(ctx, &Job{
+		Name:           successJobName,
+		Schedule:       "@every 2s",
+		Executor:       "shell",
+		ExecutorConfig: map[string]string{"command": "/bin/true"},
+		Disabled:       true,
+	}, true))
+
+	require.NoError(t, s.SetJob(ctx, &Job{
+		Name:           failedJobName,
+		Schedule:       "@every 2s",
+		Executor:       "shell",
+		ExecutorConfig: map[string]string{"command": "/bin/false"},
+		Disabled:       true,
+	}, true))
+
+	successBefore := getPrometheusCounterValue(t, "dkron_job_executions_succeeded_total", "job_name", successJobName)
+	failedBefore := getPrometheusCounterValue(t, "dkron_job_executions_failed_total", "job_name", failedJobName)
+
+	_, err := s.SetExecutionDone(ctx, &Execution{
+		JobName:    successJobName,
+		StartedAt:  time.Now().UTC(),
+		FinishedAt: time.Now().UTC(),
+		Success:    true,
+		NodeName:   "testNode",
+		Group:      time.Now().UnixNano(),
+		Attempt:    1,
+	})
+	require.NoError(t, err)
+
+	_, err = s.SetExecutionDone(ctx, &Execution{
+		JobName:    failedJobName,
+		StartedAt:  time.Now().UTC(),
+		FinishedAt: time.Now().UTC(),
+		Success:    false,
+		NodeName:   "testNode",
+		Group:      time.Now().UnixNano(),
+		Attempt:    1,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, successBefore+1, getPrometheusCounterValue(t, "dkron_job_executions_succeeded_total", "job_name", successJobName))
+	assert.Equal(t, failedBefore+1, getPrometheusCounterValue(t, "dkron_job_executions_failed_total", "job_name", failedJobName))
+}
+
+func getPrometheusCounterValue(t *testing.T, metricName, labelName, labelValue string) float64 {
+	t.Helper()
+
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	for _, mf := range mfs {
+		if mf.GetName() != metricName {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == labelName && label.GetValue() == labelValue {
+					return metric.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
 }
 
 // Following are supporting functions for the tests

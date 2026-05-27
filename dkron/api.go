@@ -8,12 +8,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
-	"github.com/distribworks/dkron/v4/types"
+	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/expvar"
 	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/go-uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/buntdb"
@@ -24,6 +26,11 @@ import (
 const (
 	pretty        = "pretty"
 	apiPathPrefix = "v1"
+)
+
+var (
+	promHandler     http.Handler
+	promHandlerOnce sync.Once
 )
 
 // Transport is the interface that wraps the ServeHTTP method.
@@ -87,14 +94,44 @@ func (h *HTTPTransport) APIRoutes(r *gin.RouterGroup, middleware ...gin.HandlerF
 	r.GET("/debug/vars", expvar.Handler())
 
 	h.Engine.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
+		healthy := true
+		issues := []string{}
+
+		// Check if all plugin processes are running
+		if h.agent.PluginClients != nil {
+			for name, client := range h.agent.PluginClients {
+				if client.Exited() {
+					healthy = false
+					issues = append(issues, fmt.Sprintf("plugin %s has exited", name))
+				}
+			}
+		}
+
+		// Determine status code and response
+		statusCode := http.StatusOK
+		response := gin.H{
 			"status": "healthy",
-		})
+		}
+
+		if !healthy {
+			statusCode = http.StatusServiceUnavailable
+			response = gin.H{
+				"status": "unhealthy",
+				"issues": issues,
+			}
+		}
+
+		// Add cluster information if available
+		if h.agent.config.Server {
+			response["leader"] = h.agent.IsLeader()
+		}
+
+		c.JSON(statusCode, response)
 	})
 
 	if h.agent.config.EnablePrometheus {
 		// Prometheus metrics scrape endpoint
-		r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+		r.GET("/metrics", gin.WrapH(h.prometheusHandler()))
 	}
 
 	r.GET("/v1", h.indexHandler)
@@ -108,6 +145,12 @@ func (h *HTTPTransport) APIRoutes(r *gin.RouterGroup, middleware ...gin.HandlerF
 	v1.POST("/restore", h.restoreHandler)
 
 	v1.GET("/busy", h.busyHandler)
+
+	v1.GET("/pause", h.pauseStatusHandler)
+	v1.POST("/pause", h.pauseHandler)
+	v1.POST("/unpause", h.unpauseHandler)
+
+	v1.GET("/stats", h.statsHandler)
 
 	v1.POST("/jobs", h.jobCreateOrUpdateHandler)
 	v1.PATCH("/jobs", h.jobCreateOrUpdateHandler)
@@ -124,6 +167,7 @@ func (h *HTTPTransport) APIRoutes(r *gin.RouterGroup, middleware ...gin.HandlerF
 	// Place fallback routes last
 	jobs.GET("/:job", h.jobGetHandler)
 	jobs.GET("/:job/executions", h.executionsHandler)
+	jobs.DELETE("/:job/executions", h.executionsDeleteHandler)
 	jobs.GET("/:job/executions/:execution", h.executionHandler)
 }
 
@@ -133,6 +177,17 @@ func (h *HTTPTransport) MetaMiddleware() gin.HandlerFunc {
 		c.Header("X-Whom", h.agent.config.NodeName)
 		c.Next()
 	}
+}
+
+func (h *HTTPTransport) prometheusHandler() http.Handler {
+	promHandlerOnce.Do(func() {
+		promHandler = promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{
+			ErrorHandling:      promhttp.ContinueOnError,
+			DisableCompression: true,
+		})
+	})
+
+	return promHandler
 }
 
 func renderJSON(c *gin.Context, status int, v interface{}) {
@@ -217,6 +272,13 @@ func (h *HTTPTransport) jobGetHandler(c *gin.Context) {
 }
 
 func (h *HTTPTransport) jobCreateOrUpdateHandler(c *gin.Context) {
+	// Check if new job submissions are paused
+	if h.agent.IsNewJobsPaused() {
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		_, _ = c.Writer.WriteString("New job submissions are currently paused")
+		return
+	}
+
 	// Init the Job object with defaults
 	job := Job{
 		Concurrency: ConcurrencyAllow,
@@ -395,6 +457,23 @@ func (h *HTTPTransport) executionsHandler(c *gin.Context) {
 	renderJSON(c, http.StatusOK, apiExecutions)
 }
 
+func (h *HTTPTransport) executionsDeleteHandler(c *gin.Context) {
+	jobName := c.Param("job")
+
+	// Call gRPC DeleteExecutions
+	job, err := h.agent.GRPCClient.DeleteExecutions(jobName)
+	if err != nil {
+		// Check for specific error types to return appropriate status codes
+		if err.Error() == "rpc error: code = NotFound desc = not found" {
+			_ = c.AbortWithError(http.StatusNotFound, err)
+		} else {
+			_ = c.AbortWithError(http.StatusInternalServerError, err)
+		}
+		return
+	}
+	renderJSON(c, http.StatusOK, job)
+}
+
 func (h *HTTPTransport) executionHandler(c *gin.Context) {
 	jobName := c.Param("job")
 	executionName := c.Param("execution")
@@ -405,30 +484,29 @@ func (h *HTTPTransport) executionHandler(c *gin.Context) {
 		return
 	}
 
-	executions, err := h.agent.Store.GetExecutions(c.Request.Context(), job.Name, &ExecutionOptions{
-		Sort:     "",
-		Order:    "",
-		Timezone: job.GetTimeLocation(),
-	})
-
+	execution, err := h.agent.Store.GetExecution(c.Request.Context(), job.Name, executionName)
 	if err != nil {
-		h.logger.Error(err)
+		if err == buntdb.ErrNotFound {
+			_ = c.AbortWithError(http.StatusNotFound, err)
+		} else {
+			h.logger.WithError(err).Error("api: Error getting execution")
+			_ = c.AbortWithError(http.StatusInternalServerError, err)
+		}
 		return
 	}
 
-	for _, execution := range executions {
-		if execution.Id == executionName {
-			renderJSON(c, http.StatusOK, execution)
-			return
-		}
-	}
+	renderJSON(c, http.StatusOK, execution)
 }
 
 func (h *HTTPTransport) membersHandler(c *gin.Context) {
-	mems := []*types.Member{}
+	mems := []*typesv1.Member{}
 	for _, m := range h.agent.serf.Members() {
 		id, _ := uuid.GenerateUUID()
-		mid := &types.Member{m, id, m.Status.String()}
+		mid := &typesv1.Member{
+			Member:     m,
+			Id:         id,
+			StatusText: m.Status.String(),
+		}
 		mems = append(mems, mid)
 	}
 	c.Header("X-Total-Count", strconv.Itoa(len(mems)))
@@ -503,4 +581,36 @@ func (h *HTTPTransport) busyHandler(c *gin.Context) {
 
 	c.Header("X-Total-Count", strconv.Itoa(len(executions)))
 	renderJSON(c, http.StatusOK, executions)
+}
+
+func (h *HTTPTransport) pauseHandler(c *gin.Context) {
+	h.agent.PauseNewJobs()
+	renderJSON(c, http.StatusOK, gin.H{"paused": true})
+}
+
+func (h *HTTPTransport) unpauseHandler(c *gin.Context) {
+	h.agent.UnpauseNewJobs()
+	renderJSON(c, http.StatusOK, gin.H{"paused": false})
+}
+
+func (h *HTTPTransport) pauseStatusHandler(c *gin.Context) {
+	paused := h.agent.IsNewJobsPaused()
+	renderJSON(c, http.StatusOK, gin.H{"paused": paused})
+}
+
+func (h *HTTPTransport) statsHandler(c *gin.Context) {
+	daysStr := c.DefaultQuery("days", "30")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil {
+		days = 30
+	}
+
+	stats, err := h.agent.Store.GetExecutionStats(c.Request.Context(), days)
+	if err != nil {
+		h.logger.WithError(err).Error("api: Unable to get execution stats")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	renderJSON(c, http.StatusOK, stats)
 }

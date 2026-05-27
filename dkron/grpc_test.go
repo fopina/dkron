@@ -2,15 +2,19 @@ package dkron
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
+	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/hashicorp/serf/testutil"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestGRPCExecutionDone(t *testing.T) {
@@ -32,6 +36,7 @@ func TestGRPCExecutionDone(t *testing.T) {
 	c.BootstrapExpect = 1
 	c.DevMode = true
 	c.DataDir = dir
+	c.HTTPAddr = "127.0.0.1:0"
 
 	a := NewAgent(c)
 	_ = a.Start()
@@ -141,4 +146,129 @@ func TestGRPCExecutionDone(t *testing.T) {
 		err = rc.ExecutionDone(a.advertiseRPCAddr(), testExecution)
 		assert.Error(t, err)
 	})
+
+	t.Run("Test job retry with broken stream error", func(t *testing.T) {
+		// Use the actual error format that would be returned when a broken stream occurs
+		brokenStreamErrorMsg := ErrBrokenStream.Error() + ": rpc error: code = Internal desc = grpc: error while marshaling"
+
+		testJob.Name = "test-retry"
+		testJob.Schedule = "0 * * * * *" // Every minute at 0 seconds (6-field format)
+		testJob.Retries = 2
+		testJob.DependentJobs = nil
+		testJob.Ephemeral = false
+		testJob.Disabled = false
+		testExecution.JobName = testJob.Name
+		testExecution.Success = false
+		testExecution.Attempt = 1
+		testExecution.NodeName = a.config.NodeName // Use the agent's node name
+		testExecution.Output = brokenStreamErrorMsg
+
+		err = a.Store.SetJob(ctx, testJob, true)
+		require.NoError(t, err)
+
+		// Add job to scheduler so it can be retrieved for retry
+		job := NewJobFromProto(testJob.ToProto(), a.logger)
+		job.Agent = a
+		err = a.sched.AddJob(job)
+		require.NoError(t, err)
+
+		// Store initial execution to establish group
+		_, err = a.Store.SetExecution(ctx, testExecution)
+		require.NoError(t, err)
+
+		// Call ExecutionDone with a failed execution that has a broken stream error
+		// This should trigger a retry since Retries > 0
+		resp, err := a.GRPCServer.(*GRPCServer).ExecutionDone(ctx, &typesv1.ExecutionDoneRequest{
+			Execution: testExecution.ToProto(),
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, []byte("retry"), resp.Payload)
+	})
+}
+
+func TestIsRetryableError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "gRPC Unavailable status code",
+			err:      status.Error(codes.Unavailable, "transport is closing"),
+			expected: true,
+		},
+		{
+			name:     "gRPC DeadlineExceeded status code",
+			err:      status.Error(codes.DeadlineExceeded, "deadline exceeded"),
+			expected: true,
+		},
+		{
+			name:     "gRPC ResourceExhausted status code",
+			err:      status.Error(codes.ResourceExhausted, "quota exceeded"),
+			expected: true,
+		},
+		{
+			name:     "gRPC Aborted status code",
+			err:      status.Error(codes.Aborted, "transaction aborted"),
+			expected: true,
+		},
+		{
+			name:     "gRPC Internal status code",
+			err:      status.Error(codes.Internal, "internal error"),
+			expected: true,
+		},
+		{
+			name:     "gRPC InvalidArgument status code",
+			err:      status.Error(codes.InvalidArgument, "bad request"),
+			expected: false,
+		},
+		{
+			name:     "gRPC NotFound status code",
+			err:      status.Error(codes.NotFound, "not found"),
+			expected: false,
+		},
+		{
+			name:     "transport is closing",
+			err:      errors.New("transport is closing"),
+			expected: true,
+		},
+		{
+			name:     "connection refused",
+			err:      errors.New("connection refused"),
+			expected: true,
+		},
+		{
+			name:     "connection reset",
+			err:      errors.New("connection reset by peer"),
+			expected: true,
+		},
+		{
+			name:     "broken pipe",
+			err:      errors.New("broken pipe"),
+			expected: true,
+		},
+		{
+			name:     "context deadline exceeded",
+			err:      errors.New("context deadline exceeded"),
+			expected: true,
+		},
+		{
+			name:     "non-retryable error",
+			err:      errors.New("some other error"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isRetryableError(tt.err)
+			assert.Equal(t, tt.expected, result, "isRetryableError(%v) = %v, want %v", tt.err, result, tt.expected)
+		})
+	}
 }

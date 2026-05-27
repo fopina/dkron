@@ -1,32 +1,32 @@
-import { HtmlHTMLAttributes, ReactNode } from 'react';
+import React, { HtmlHTMLAttributes, ReactNode } from 'react';
 import { useState } from 'react';
 import {
-    Form,
     useLogin,
     useNotify,
-    TextInput,
     useSafeSetState,
 } from 'react-admin';
 import { styled } from '@mui/material/styles';
-import { 
+import {
     Button,
     CardContent,
     CircularProgress,
-    Avatar,
     Card,
     SxProps,
+    TextField,
+    Typography,
+    Box,
 } from '@mui/material';
-import LockIcon from '@mui/icons-material/Lock';
+import logo from './images/dkron-logo.png';
 
 const LoginPage = (props: LoginFormProps) => {
     const [token, setToken] = useState('');
     const login = useLogin();
     const notify = useNotify();
-    const avatarIcon = <LockIcon />;
     const { className } = props;
     const [loading, setLoading] = useSafeSetState(false);
 
-    const handleSubmit = (values: FormData) => {
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
         setLoading(true);
         login({ token }).catch(() => {
             setLoading(false);
@@ -37,21 +37,57 @@ const LoginPage = (props: LoginFormProps) => {
     return (
         <Root>
             <Card className={LoginClasses.card}>
-                <div className={LoginClasses.avatar}>
-                    <Avatar className={LoginClasses.icon}>{avatarIcon}</Avatar>
-                </div>
-                <StyledForm
-                    onSubmit={handleSubmit}
-                    mode="onChange"
-                    noValidate
-                    className={className}
-                >
+                <Box sx={{ pt: 4, pb: 2, px: 4, textAlign: 'center' }}>
+                    <Box
+                        sx={{
+                            mb: 3,
+                            display: 'flex',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        <img
+                            src={logo}
+                            alt="Dkron"
+                            style={{
+                                maxWidth: 140,
+                            }}
+                        />
+                    </Box>
+                    <Typography
+                        variant="h5"
+                        component="h1"
+                        sx={{
+                            fontWeight: 600,
+                            color: 'text.primary',
+                            mb: 1,
+                        }}
+                    >
+                        Welcome Back
+                    </Typography>
+                    <Typography
+                        variant="body2"
+                        sx={{ color: 'text.secondary' }}
+                    >
+                        Sign in to access your job scheduler
+                    </Typography>
+                </Box>
+                <form onSubmit={handleSubmit} className={className}>
                     <CardContent className={LoginFormClasses.content}>
-                        <TextInput
+                        <TextField
                             name="token"
-                            type="text"
+                            label="Access Token"
+                            type="password"
                             value={token}
                             onChange={e => setToken(e.target.value)}
+                            fullWidth
+                            variant="outlined"
+                            margin="normal"
+                            autoFocus
+                            sx={{
+                                '& .MuiOutlinedInput-root': {
+                                    borderRadius: 2,
+                                }
+                            }}
                         />
 
                         <Button
@@ -60,21 +96,41 @@ const LoginPage = (props: LoginFormProps) => {
                             color="primary"
                             disabled={loading}
                             fullWidth
-                            className={LoginFormClasses.button}
+                            size="large"
+                            sx={{
+                                mt: 2,
+                                mb: 1,
+                                py: 1.5,
+                                borderRadius: 2,
+                                fontWeight: 600,
+                                textTransform: 'none',
+                                fontSize: '1rem',
+                            }}
                         >
                             {loading ? (
                                 <CircularProgress
                                     className={LoginFormClasses.icon}
-                                    size={19}
+                                    size={24}
                                     thickness={3}
+                                    sx={{ color: 'white' }}
                                 />
                             ) : (
-                                "Sign in"
+                                "Sign In"
                             )}
                         </Button>
                     </CardContent>
-                </StyledForm>
+                </form>
             </Card>
+            <Typography
+                variant="body2"
+                sx={{
+                    mt: 4,
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    textAlign: 'center',
+                }}
+            >
+                Dkron - Distributed Job Scheduling System
+            </Typography>
         </Root>
     );
 };
@@ -105,15 +161,17 @@ const Root = styled('div', {
     minHeight: '100vh',
     height: '1px',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     backgroundRepeat: 'no-repeat',
     backgroundSize: 'cover',
-    backgroundImage:
-        'radial-gradient(circle at 50% 14em, #313264 0%, #00023b 60%, #00023b 100%)',
+    background: 'linear-gradient(135deg, #1a365d 0%, #2c5282 50%, #1a365d 100%)',
 
     [`& .${LoginClasses.card}`]: {
-        minWidth: 300,
-        marginTop: '6em',
+        minWidth: 380,
+        maxWidth: 420,
+        borderRadius: 16,
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+        overflow: 'hidden',
     },
     [`& .${LoginClasses.avatar}`]: {
         margin: '1em',
@@ -121,7 +179,7 @@ const Root = styled('div', {
         justifyContent: 'center',
     },
     [`& .${LoginClasses.icon}`]: {
-        backgroundColor: theme.palette.secondary[500],
+        backgroundColor: theme.palette.secondary.main,
     },
 }));
 
@@ -130,24 +188,8 @@ const PREFIXF = 'RaLoginForm';
 export const LoginFormClasses = {
     content: `${PREFIXF}-content`,
     button: `${PREFIXF}-button`,
-    icon: `${PREFIXF
-    }-icon`,
+    icon: `${PREFIXF}-icon`,
 };
-
-const StyledForm = styled(Form, {
-    name: PREFIXF,
-    overridesResolver: (props, styles) => styles.root,
-})(({ theme }) => ({
-    [`& .${LoginFormClasses.content}`]: {
-        width: 300,
-    },
-    [`& .${LoginFormClasses.button}`]: {
-        marginTop: theme.spacing(2),
-    },
-    [`& .${LoginFormClasses.icon}`]: {
-        margin: theme.spacing(0.3),
-    },
-}));
 
 export interface LoginFormProps {
     redirectTo?: string;

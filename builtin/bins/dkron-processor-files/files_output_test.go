@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	types "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/plugin"
-	"github.com/distribworks/dkron/v4/types"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -14,7 +14,7 @@ func TestProcess(t *testing.T) {
 	now := timestamppb.Now()
 
 	pa := &plugin.ProcessorArgs{
-		Execution: types.Execution{
+		Execution: &types.Execution{
 			StartedAt: now,
 			NodeName:  "testNode",
 			Output:    []byte("test"),
