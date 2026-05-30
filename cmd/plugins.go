@@ -20,6 +20,7 @@ var embededPlugins = []string{"shell", "http"}
 type Plugins struct {
 	Processors      map[string]dkplugin.Processor
 	Executors       map[string]dkplugin.Executor
+	ExecutorSchemas map[string]string
 	PluginClients   map[string]*plugin.Client
 	LogLevel        string
 	NodeName        string
@@ -36,6 +37,7 @@ type Plugins struct {
 func (p *Plugins) DiscoverPlugins() error {
 	p.Processors = make(map[string]dkplugin.Processor)
 	p.Executors = make(map[string]dkplugin.Executor)
+	p.ExecutorSchemas = make(map[string]string)
 	p.PluginClients = make(map[string]*plugin.Client)
 
 	pluginDir := filepath.Join("/etc", "dkron", "plugins")
@@ -98,6 +100,13 @@ func (p *Plugins) DiscoverPlugins() error {
 			return err
 		}
 		p.Executors[pluginName] = raw.(dkplugin.Executor)
+		if schemaProvider, ok := raw.(dkplugin.ExecutorConfigSchemaProvider); ok {
+			schema, err := schemaProvider.ConfigSchema()
+			if err != nil {
+				logrus.WithError(err).WithField("plugin", pluginName).Warn("Unable to load executor config schema")
+			}
+			p.ExecutorSchemas[pluginName] = schema
+		}
 		p.PluginClients["executor-"+pluginName] = client
 	}
 
@@ -108,6 +117,13 @@ func (p *Plugins) DiscoverPlugins() error {
 			return err
 		}
 		p.Executors[pluginName] = raw.(dkplugin.Executor)
+		if schemaProvider, ok := raw.(dkplugin.ExecutorConfigSchemaProvider); ok {
+			schema, err := schemaProvider.ConfigSchema()
+			if err != nil {
+				logrus.WithError(err).WithField("plugin", pluginName).Warn("Unable to load executor config schema")
+			}
+			p.ExecutorSchemas[pluginName] = schema
+		}
 		p.PluginClients["executor-"+pluginName] = client
 	}
 

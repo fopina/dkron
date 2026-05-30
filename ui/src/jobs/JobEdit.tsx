@@ -14,6 +14,7 @@ import {
     ShowButton,
 } from 'react-admin';
 import { JsonInput } from "react-admin-json-view";
+import { ExecutorConfigInput } from './ExecutorConfigInput';
 
 const JobEditActions = () => (
     <TopToolbar sx={{ mt: 2, mb: 1 }}>
@@ -110,19 +111,7 @@ const EditForm = (record: any) => (
             helperText="Job metadata describes the job and allows filtering from the API."
         />
         <TextInput source="executor" helperText="Executor plugin to be used in this job." validate={required()} />
-        <JsonInput
-            source="executor_config"
-            // validate={required(){ return true }}
-            reactJsonOptions={{
-                // Props passed to react-json-view
-                name: null,
-                collapsed: true,
-                enableClipboard: false,
-                displayDataTypes: false,
-            }}
-            helperText="Configuration arguments for the specific executor."
-            validate={required()}
-        />
+        <ExecutorConfigInput />
         <BooleanInput source="disabled" helperText="Is this job disabled?" />
         <NumberInput source="retries" helperText="Number of times to retry a job that failed an execution." />
     </SimpleForm>

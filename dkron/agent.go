@@ -70,6 +70,9 @@ type Agent struct {
 	//ExecutorPlugins maps executor plugins
 	ExecutorPlugins map[string]plugin.Executor
 
+	// ExecutorPluginSchemas maps executor plugin names to optional JSON schemas.
+	ExecutorPluginSchemas map[string]string
+
 	// PluginClients maps plugin names to their client instances for health checking
 	PluginClients map[string]*goplugin.Client
 
@@ -144,9 +147,10 @@ type ProcessorFactory func() (plugin.Processor, error)
 
 // Plugins struct to store loaded plugins of each type
 type Plugins struct {
-	Processors    map[string]plugin.Processor
-	Executors     map[string]plugin.Executor
-	PluginClients map[string]*goplugin.Client
+	Processors      map[string]plugin.Processor
+	Executors       map[string]plugin.Executor
+	ExecutorSchemas map[string]string
+	PluginClients   map[string]*goplugin.Client
 }
 
 // AgentOption type that defines agent options
