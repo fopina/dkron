@@ -7,9 +7,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/hashicorp/go-metrics"
 	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/plugin"
+	"github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 	"github.com/sirupsen/logrus"
@@ -189,7 +189,7 @@ func (grpcs *GRPCServer) ExecutionDone(ctx context.Context, execDoneReq *typesv1
 	// Get the leader address and compare with the current node address.
 	// Forward the request to the leader in case current node is not the leader.
 	if !grpcs.agent.IsLeader() {
-		addr := grpcs.agent.raft.Leader()
+		addr := grpcs.agent.Leader()
 		grpcs.agent.GRPCClient.ExecutionDone(string(addr), NewExecutionFromProto(execDoneReq.Execution))
 		return nil, ErrNotLeader
 	}
@@ -345,7 +345,7 @@ func (grpcs *GRPCServer) RaftGetConfiguration(ctx context.Context, in *emptypb.E
 	}
 
 	// Fill out the reply.
-	leader := grpcs.agent.raft.Leader()
+	_, leaderID := grpcs.agent.raft.LeaderWithID()
 	reply := &typesv1.RaftGetConfigurationResponse{}
 	reply.Index = future.Index()
 	for _, server := range future.Configuration().Servers {
@@ -362,7 +362,7 @@ func (grpcs *GRPCServer) RaftGetConfiguration(ctx context.Context, in *emptypb.E
 			Id:           string(server.ID),
 			Node:         node,
 			Address:      string(server.Address),
-			Leader:       server.Address == leader,
+			Leader:       server.ID == leaderID,
 			Voter:        server.Suffrage == raft.Voter,
 			RaftProtocol: raftProtocolVersion,
 		}
@@ -435,14 +435,7 @@ func (grpcs *GRPCServer) SetExecution(ctx context.Context, execution *typesv1.Ex
 		"execution": execution.Key(),
 	}).Debug("grpc: Received SetExecution")
 
-	cmd, err := Encode(SetExecutionType, execution)
-	if err != nil {
-		grpcs.logger.WithError(err).Fatal("agent: encode error in SetExecution")
-		return nil, err
-	}
-	af := grpcs.agent.raft.Apply(cmd, raftTimeout)
-	if err := af.Error(); err != nil {
-		grpcs.logger.WithError(err).Fatal("agent: error applying SetExecutionType")
+	if err := grpcs.agent.applySetExecution(execution); err != nil {
 		return nil, err
 	}
 
