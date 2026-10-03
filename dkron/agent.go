@@ -136,6 +136,9 @@ type Agent struct {
 	// pauseNewJobs controls whether new jobs can be created or updated
 	pauseNewJobs bool
 	pauseMu      sync.RWMutex
+
+	isLeaderFn func() bool
+	leaderFn   func() raft.ServerAddress
 }
 
 // ProcessorFactory is a function type that creates a new instance
@@ -640,6 +643,11 @@ func (a *Agent) StartServer() {
 	if err := a.raftLayer.Open(raftl); err != nil {
 		a.logger.Fatal(err)
 	}
+	advertiseAddr, err := net.ResolveTCPAddr("tcp", a.advertiseRPCAddr())
+	if err != nil {
+		a.logger.WithError(err).Fatal("agent: Failed to resolve advertised RPC address")
+	}
+	a.raftLayer.SetAdvertiseAddr(advertiseAddr)
 
 	if err := a.setupRaft(); err != nil {
 		a.logger.WithError(err).Fatal("agent: Raft layer failed to start")
@@ -660,9 +668,12 @@ func (a *Agent) leaderMember() (*serf.Member, error) {
 	if a.raft == nil {
 		return nil, ErrLeaderNotFound
 	}
-	l := a.raft.Leader()
+	_, leaderID := a.raft.LeaderWithID()
+	if leaderID == "" {
+		return nil, ErrLeaderNotFound
+	}
 	for _, member := range a.serf.Members() {
-		if member.Tags["rpc_addr"] == string(l) {
+		if member.Name == string(leaderID) {
 			return &member, nil
 		}
 	}
@@ -671,6 +682,9 @@ func (a *Agent) leaderMember() (*serf.Member, error) {
 
 // IsLeader checks if this server is the cluster leader
 func (a *Agent) IsLeader() bool {
+	if a.isLeaderFn != nil {
+		return a.isLeaderFn()
+	}
 	if a.raft == nil {
 		return false
 	}
@@ -689,10 +703,20 @@ func (a *Agent) LocalMember() serf.Member {
 
 // Leader is used to return the Raft leader
 func (a *Agent) Leader() raft.ServerAddress {
+	if a.leaderFn != nil {
+		return a.leaderFn()
+	}
 	if a.raft == nil {
 		return ""
 	}
-	return a.raft.Leader()
+	leaderAddr, leaderID := a.raft.LeaderWithID()
+	if leaderID == "" {
+		return leaderAddr
+	}
+	if rpcAddr, err := a.serverLookup.ServerAddr(leaderID); err == nil {
+		return rpcAddr
+	}
+	return leaderAddr
 }
 
 // Servers returns a list of known server

@@ -7,15 +7,19 @@ import (
 	"net"
 	"time"
 
-	"github.com/hashicorp/go-metrics"
 	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/distribworks/dkron/v4/plugin"
+	"github.com/hashicorp/go-metrics"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 	"github.com/sirupsen/logrus"
+	"github.com/tidwall/buntdb"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/net/context"
+	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -42,8 +46,9 @@ type DkronGRPCServer interface {
 // GRPCServer is the local implementation of the gRPC server interface.
 type GRPCServer struct {
 	typesv1.DkronServer
-	agent  *Agent
-	logger *logrus.Entry
+	agent              *Agent
+	logger             *logrus.Entry
+	executionDoneGroup singleflight.Group
 }
 
 // NewGRPCServer creates and returns an instance of a DkronGRPCServer implementation
@@ -189,9 +194,46 @@ func (grpcs *GRPCServer) ExecutionDone(ctx context.Context, execDoneReq *typesv1
 	// Get the leader address and compare with the current node address.
 	// Forward the request to the leader in case current node is not the leader.
 	if !grpcs.agent.IsLeader() {
-		addr := grpcs.agent.raft.Leader()
-		grpcs.agent.GRPCClient.ExecutionDone(string(addr), NewExecutionFromProto(execDoneReq.Execution))
-		return nil, ErrNotLeader
+		addr := grpcs.agent.Leader()
+		if err := grpcs.agent.GRPCClient.ExecutionDone(string(addr), NewExecutionFromProto(execDoneReq.Execution)); err != nil {
+			if isNotLeaderError(err) || isRetryableError(err) {
+				return nil, status.Errorf(codes.Unavailable, "grpc: failed forwarding ExecutionDone to leader %q: %v", addr, err)
+			}
+			return nil, fmt.Errorf("grpc: failed forwarding ExecutionDone to leader %q: %w", addr, err)
+		}
+
+		return &typesv1.ExecutionDoneResponse{
+			From:    string(addr),
+			Payload: []byte("forwarded"),
+		}, nil
+	}
+
+	execution := NewExecutionFromProto(execDoneReq.Execution)
+	result, err, _ := grpcs.executionDoneGroup.Do(execution.JobName+":"+execution.Key(), func() (interface{}, error) {
+		return grpcs.completeExecution(ctx, execDoneReq)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*typesv1.ExecutionDoneResponse), nil
+}
+
+func (grpcs *GRPCServer) completeExecution(ctx context.Context, execDoneReq *typesv1.ExecutionDoneRequest) (*typesv1.ExecutionDoneResponse, error) {
+	execution := NewExecutionFromProto(execDoneReq.Execution)
+	storedExecution, err := grpcs.agent.Store.GetExecution(ctx, execution.JobName, execution.Key())
+	if err == nil && !storedExecution.FinishedAt.IsZero() && !execution.FinishedAt.After(storedExecution.FinishedAt) {
+		grpcs.logger.WithFields(logrus.Fields{
+			"execution": execution.Key(),
+			"job":       execution.JobName,
+		}).Debug("grpc: ExecutionDone already committed")
+		return &typesv1.ExecutionDoneResponse{
+			From:    grpcs.agent.config.NodeName,
+			Payload: []byte("duplicate"),
+		}, nil
+	}
+	if err != nil && !errors.Is(err, buntdb.ErrNotFound) {
+		return nil, err
 	}
 
 	// This is the leader at this point, so process the execution, encode the value and apply the log to the cluster.
@@ -230,7 +272,7 @@ func (grpcs *GRPCServer) ExecutionDone(ctx context.Context, execDoneReq *typesv1
 	}
 
 	// If the execution failed, retry it until retries limit (default: don't retry)
-	execution := NewExecutionFromProto(pbex)
+	execution = NewExecutionFromProto(pbex)
 	if !execution.Success &&
 		uint(execution.Attempt) < job.Retries+1 {
 		// Increment the attempt counter
@@ -345,7 +387,7 @@ func (grpcs *GRPCServer) RaftGetConfiguration(ctx context.Context, in *emptypb.E
 	}
 
 	// Fill out the reply.
-	leader := grpcs.agent.raft.Leader()
+	_, leaderID := grpcs.agent.raft.LeaderWithID()
 	reply := &typesv1.RaftGetConfigurationResponse{}
 	reply.Index = future.Index()
 	for _, server := range future.Configuration().Servers {
@@ -362,7 +404,7 @@ func (grpcs *GRPCServer) RaftGetConfiguration(ctx context.Context, in *emptypb.E
 			Id:           string(server.ID),
 			Node:         node,
 			Address:      string(server.Address),
-			Leader:       server.Address == leader,
+			Leader:       server.ID == leaderID,
 			Voter:        server.Suffrage == raft.Voter,
 			RaftProtocol: raftProtocolVersion,
 		}
@@ -435,14 +477,7 @@ func (grpcs *GRPCServer) SetExecution(ctx context.Context, execution *typesv1.Ex
 		"execution": execution.Key(),
 	}).Debug("grpc: Received SetExecution")
 
-	cmd, err := Encode(SetExecutionType, execution)
-	if err != nil {
-		grpcs.logger.WithError(err).Fatal("agent: encode error in SetExecution")
-		return nil, err
-	}
-	af := grpcs.agent.raft.Apply(cmd, raftTimeout)
-	if err := af.Error(); err != nil {
-		grpcs.logger.WithError(err).Fatal("agent: error applying SetExecutionType")
+	if err := grpcs.agent.applySetExecution(execution); err != nil {
 		return nil, err
 	}
 
