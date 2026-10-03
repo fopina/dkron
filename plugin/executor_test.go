@@ -17,6 +17,10 @@ func (m *MockedExecutor) Execute(ctx context.Context, in *dktypes.ExecuteRequest
 	return resp, nil
 }
 
+func (m *MockedExecutor) ConfigSchema(ctx context.Context, in *dktypes.ConfigSchemaRequest, opts ...grpc.CallOption) (*dktypes.ConfigSchemaResponse, error) {
+	return &dktypes.ConfigSchemaResponse{}, nil
+}
+
 type MockedStatusHelper struct{}
 
 func (m MockedStatusHelper) Update([]byte, bool) (int64, error) {
