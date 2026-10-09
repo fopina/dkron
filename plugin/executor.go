@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"time"
 
 	typesv1 "github.com/distribworks/dkron/v4/gen/proto/types/v1"
 	"github.com/hashicorp/go-plugin"
@@ -58,7 +59,10 @@ type ExecutorClient struct {
 }
 
 func (m *ExecutorClient) ConfigSchema() (string, error) {
-	r, err := m.client.ConfigSchema(context.Background(), &typesv1.ConfigSchemaRequest{})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	r, err := m.client.ConfigSchema(ctx, &typesv1.ConfigSchemaRequest{})
 	if err != nil {
 		if status.Code(err) == codes.Unimplemented {
 			return "", nil

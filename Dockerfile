@@ -9,6 +9,7 @@ WORKDIR /app
 ENV GOCACHE=/root/.cache/go-build
 ENV GOMODCACHE=/root/.cache/go-build
 ENV GO111MODULE=on
+ENV GOMAXPROCS=2
 
 # Leverage build cache by copying go.mod and go.sum first
 COPY go.mod go.sum ./
@@ -18,7 +19,7 @@ RUN go mod verify
 # Copy the rest of the source code
 COPY . .
 
-RUN go install ./builtin/...
-RUN go build -o /go/bin/dkron main.go
+RUN go install -p 2 ./builtin/...
+RUN --mount=type=cache,target=/root/.cache/go-build go build -p 2 -o /go/bin/dkron main.go
 
 CMD ["dkron"]

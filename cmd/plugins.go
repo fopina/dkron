@@ -99,14 +99,9 @@ func (p *Plugins) DiscoverPlugins() error {
 		if err != nil {
 			return err
 		}
-		p.Executors[pluginName] = raw.(dkplugin.Executor)
-		if schemaProvider, ok := raw.(dkplugin.ExecutorConfigSchemaProvider); ok {
-			schema, err := schemaProvider.ConfigSchema()
-			if err != nil {
-				logrus.WithError(err).WithField("plugin", pluginName).Warn("Unable to load executor config schema")
-			}
-			p.ExecutorSchemas[pluginName] = schema
-		}
+		executor := raw.(dkplugin.Executor)
+		p.Executors[pluginName] = executor
+		p.registerExecutorSchema(pluginName, executor)
 		p.PluginClients["executor-"+pluginName] = client
 	}
 
@@ -116,18 +111,28 @@ func (p *Plugins) DiscoverPlugins() error {
 		if err != nil {
 			return err
 		}
-		p.Executors[pluginName] = raw.(dkplugin.Executor)
-		if schemaProvider, ok := raw.(dkplugin.ExecutorConfigSchemaProvider); ok {
-			schema, err := schemaProvider.ConfigSchema()
-			if err != nil {
-				logrus.WithError(err).WithField("plugin", pluginName).Warn("Unable to load executor config schema")
-			}
-			p.ExecutorSchemas[pluginName] = schema
-		}
+		executor := raw.(dkplugin.Executor)
+		p.Executors[pluginName] = executor
+		p.registerExecutorSchema(pluginName, executor)
 		p.PluginClients["executor-"+pluginName] = client
 	}
 
 	return nil
+}
+
+func (p *Plugins) registerExecutorSchema(pluginName string, raw dkplugin.Executor) {
+	schemaProvider, ok := raw.(dkplugin.ExecutorConfigSchemaProvider)
+	if !ok {
+		return
+	}
+	schema, err := schemaProvider.ConfigSchema()
+	if err != nil {
+		logrus.WithError(err).WithField("plugin", pluginName).Warn("Unable to load executor config schema")
+		return
+	}
+	if schema != "" {
+		p.ExecutorSchemas[pluginName] = schema
+	}
 }
 
 func getPluginName(file string) (string, bool) {
