@@ -195,6 +195,19 @@ const SchemaExecutorConfigInput = ({ schema }: { schema: RJSFSchema }) => {
 export const ExecutorConfigInput = () => {
     const executor = useWatch({ name: 'executor' });
     const [plugins, setPlugins] = useState<ExecutorPlugin[]>([]);
+    const previousExecutor = useRef(executor);
+    const { clearErrors, setValue, trigger } = useFormContext();
+
+    useEffect(() => {
+        if (previousExecutor.current === executor) return;
+        previousExecutor.current = executor;
+
+        // Validation belongs to the selected executor/editor. In particular, a
+        // schema error must not survive after switching to a legacy JSON editor.
+        clearExecutorConfigEditorError(setValue);
+        clearErrors('executor_config');
+        void trigger('executor_config');
+    }, [clearErrors, executor, setValue, trigger]);
 
     useEffect(() => {
         httpClient(`${apiUrl}/plugins/executors`)
