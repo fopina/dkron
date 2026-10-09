@@ -43,57 +43,12 @@ import {
 } from '@mui/material';
 import { ProcessorsInput } from './ProcessorsInput';
 import { EDITOR_ERRORS_FIELD, StringMap, StringMapInput } from './StringMapInput';
+import { ExecutorConfigInput } from './ExecutorConfigInput';
 import { pagePadding } from '../layout/Page';
 
 const executorChoices = [
     'shell', 'http', 'grpc', 'kafka', 'nats', 'rabbitmq', 'gcppubsub',
 ];
-
-const executorConfig: Record<string, { keys: string[]; defaults: StringMap }> = {
-    shell: {
-        keys: ['command', 'shell', 'env', 'cwd', 'timeout', 'mem_limit', 'payload'],
-        defaults: { command: '', shell: 'true', timeout: '30s' },
-    },
-    http: {
-        keys: [
-            'method', 'url', 'headers', 'body', 'timeout', 'expectCode', 'expectBody', 'debug',
-            'tlsNoVerifyPeer', 'tlsRootCAsFile', 'tlsCertificateFile', 'tlsCertificateKeyFile',
-        ],
-        defaults: { method: 'GET', url: '', timeout: '30', expectCode: '200' },
-    },
-    grpc: {
-        keys: ['url', 'body', 'headers', 'timeout', 'expectCode'],
-        defaults: { url: '', timeout: '30', expectCode: '0' },
-    },
-    kafka: {
-        keys: [
-            'brokerAddress', 'topic', 'key', 'message', 'debug', 'tlsEnable',
-            'tlsInsecureSkipVerify', 'saslUsername', 'saslPassword', 'saslMechanism',
-        ],
-        defaults: { brokerAddress: '', topic: '', message: '' },
-    },
-    nats: {
-        keys: ['url', 'subject', 'message', 'userName', 'password', 'debug'],
-        defaults: { url: '', subject: '', message: '' },
-    },
-    rabbitmq: {
-        keys: [
-            'url', 'exchange', 'queue.name', 'queue.create', 'queue.durable',
-            'queue.auto_delete', 'queue.exclusive', 'message.content_type',
-            'message.delivery_mode', 'message.messageId', 'message.body', 'message.base64Body',
-        ],
-        defaults: {
-            url: 'amqp://guest:guest@localhost:5672/',
-            exchange: 'amq.default',
-            'queue.name': '',
-            'queue.create': 'false',
-        },
-    },
-    gcppubsub: {
-        keys: ['project', 'topic', 'data', 'attributes'],
-        defaults: { project: '', topic: '' },
-    },
-};
 
 const getTimezones = () => {
     const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] };
@@ -287,24 +242,6 @@ const ScheduleInput = () => {
                 ))}
             </Stack>
         </Box>
-    );
-};
-
-const ExecutorConfigInput = () => {
-    const executor = useWatch({ name: 'executor' }) || '';
-    const config = executorConfig[executor];
-    return (
-        <StringMapInput
-            source="executor_config"
-            label="Executor configuration"
-            helperText="Configuration values are strings. Recognized secrets are masked in the form."
-            keyOptions={config?.keys}
-            suggestedValues={config?.defaults}
-            emptyText={executor
-                ? `No configuration has been added for ${executor}.`
-                : 'Select an executor before adding configuration.'}
-            advancedLabel="Edit executor config as JSON"
-        />
     );
 };
 
